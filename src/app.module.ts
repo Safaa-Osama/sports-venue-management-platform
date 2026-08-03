@@ -10,6 +10,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 import { BookingModule } from './modules/booking/booking.module';
 import { PaymentModule } from './modules/payment/payment.module';
+import { RedisModule } from './common/services/redis/redisModule';
 
 
 
@@ -38,7 +39,9 @@ import { PaymentModule } from './modules/payment/payment.module';
     AuthModule,
     UserModule,
     BookingModule,
-    PaymentModule
+    PaymentModule,
+    RedisModule,
+ JwtModule.register({ global: true }),
   ],
 
   exports: [],

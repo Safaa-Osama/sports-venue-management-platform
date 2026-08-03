@@ -1,16 +1,23 @@
 import { Controller, Get } from '@nestjs/common';
 import { UserService } from './user.service';
+import { auth } from 'src/common/decorator/auth.decorator';
+import { User } from 'src/common/decorator/user.decorator';
+import type { UserDocument } from './entities/user.entity';
 
 
-@Controller('user')
+@Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) { }
 
   @Get()
-  getUser() {
-    return this.userService.getUser();
+  getAllUser() {
+    return this.userService.getAllUser();
   }
 
-
+  @auth({})
+  @Get('profile')
+  getProfile(@User() user:UserDocument) {
+    return this.userService.getProfile(user);
   }
-
+  
+}

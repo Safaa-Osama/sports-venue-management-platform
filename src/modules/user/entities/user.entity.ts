@@ -15,32 +15,21 @@ export class User {
   @Prop({ type: String, required: true })
   userName: string;
 
-  @Prop({ type: String, required: true, unique: true })
-  phone: string;
-
-  @Prop({ type: Number })
-  age: number;
+  @Prop({ type: [String], required: true, unique: true })
+  phone: string[];
 
   @Prop({ type: String })
   avatar: string;
 
+  @Prop({ type: String })
+  position: string;
+
   @Prop({ type: String, enum: RoleEnum, default: RoleEnum.customer })
   role: RoleEnum;
-
-  @Prop({ type: String, enum: GenderEnum, default: GenderEnum.male })
-  gender: GenderEnum;
-
-  @Prop({ type: String, enum: ProviderEnum, default: ProviderEnum.system })
-  provider: ProviderEnum;
 
   @Prop({ type: Number, default: 0 })
   walletBalance: number;
 
-  @Prop({ type: Date })
-  birthDate: Date;
-
-  @Prop({type:Date})
-  createdAt:Date
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

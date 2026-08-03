@@ -27,10 +27,10 @@ export class TokenService {
     }
 
     async getSignature(prefix: string) {
-        
+
         let ACCESS_SECRET_KEY: string = "";
         let REFRESH_SECRET_KEY: string = "";
-        
+
         if (prefix === process.env.PREFIX_USER) {
             ACCESS_SECRET_KEY = process.env.SECRET_KEY_USER!;
             REFRESH_SECRET_KEY = process.env.REFRESH_SECRET_KEY_USER!;
@@ -46,7 +46,8 @@ export class TokenService {
 
 
     async authenticateToken_fetchUser(token: string, secret: string) {
-
+        console.log("SECRET USED:", secret);
+        console.log("TOKEN:", token);
         const decoded = await this.verifyToken({ token, options: { secret } }) as any;
 
         if (!decoded?.jti || !decoded?.id) {
