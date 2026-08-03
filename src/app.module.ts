@@ -1,10 +1,42 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { ConfigModule } from '@nestjs/config';
+import { MongooseModule } from '@nestjs/mongoose';
+import { Connection } from 'mongoose';
+import { JwtModule } from '@nestjs/jwt';
+import { VenueModule } from './modules/venue/venue.module';
+import { AuthModule } from './modules/auth/auth.module';
+
+
 
 @Module({
-  imports: [],
-  controllers: [AppController],
+  imports: [
+    // config 
+    ConfigModule.forRoot({
+      envFilePath: ['.env.development', '.env.production'],
+      isGlobal: true,
+    }),
+
+    // mongo db
+    MongooseModule.forRoot(process.env.DB_LOCAL!, {
+      onConnectionCreate: (connection: Connection) => {
+        connection.on('connected', () => console.log('database connected'));
+        connection.on('open', () => console.log('database open'));
+        connection.on('disconnected', () => console.log('database disconnected'),);
+        connection.on('reconnected', () => console.log('database reconnected'));
+        connection.on('disconnecting', () => console.log('database disconnecting'),);
+
+        return connection;
+      },
+    }),
+    JwtModule.register({ global: true }),
+    VenueModule,
+    AuthModule,
+  ],
+
+  exports: [],
   providers: [AppService],
+  controllers: [AppController],
 })
-export class AppModule {}
+export class AppModule { }

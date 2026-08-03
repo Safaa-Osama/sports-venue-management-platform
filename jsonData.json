@@ -1,0 +1,90 @@
+// Venue CRUD operations json
+
+//Venue Get response body    /api/venues
+
+{
+    "_id": "ObjectId",
+    "name": "String",
+    "sport": [
+        "String"
+    ],
+    "address": "String",
+    "locationAlt": "Number",
+    "locationLang": "Number",
+    "images": [
+        "String"
+    ],
+    "amenities": [
+        "String"
+    ],
+    "startWorkingHours": "String",
+    "endWorkingHours": "String",
+    "defaultHourPrice": "Number",
+    "customHourPrices": [
+        {
+            "hour": "Number",
+            "pricePerHour": "Number"
+        }
+    ],
+    "isActive": "Boolean"
+}
+
+//Venue POST request body   /api/venue/create
+
+{
+    "name": "string",
+    "sport": [
+        "string"
+    ],
+    "address": "String",
+    "locationAlt": "number",
+    "locationLang": "number",
+    "images": [
+        "string"
+    ],
+    "amenities": [
+        "string"
+    ],
+    "startWorkingHours": "number", //search how to save hours in mongodb (8*60 =480 min)
+    "endWorkingHours": "number",
+    "isActive": "boolean",
+    "defaultHourPrice": "number",
+    "customHourPrices": [
+        {
+            "hour": "number",
+            "pricePerHour": "number"
+        }
+    ]
+},
+
+//Venue patch request body   /api/venue/update/{venueId}
+
+{
+    "name": "string",
+    "sport": [
+        "string"
+    ],
+    "address": "string",
+    "locationAlt": "number",
+    "locationLang": "number",
+    "images": [
+        "string"
+    ],
+    "amenities": [
+        "string"
+    ],
+    "startWorkingHours": "number", //search how to save hours in mongodb
+    "endWorkingHours": "number",
+    "isActive": "boolean",
+    "isDeleted": "boolean",
+    "defaultHourPrice": "number",
+    "customHourPrices": [
+        {
+            "hour": "number",
+            "pricePerHour": "number"
+        }
+    ]
+},
+
+
+/prices

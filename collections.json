@@ -1,0 +1,176 @@
+{
+    "users": [
+        {
+            "_id": "ObjectId",
+            "name": "String",
+            "phone": "String",
+            "avatar": "String",
+            "role": "String",
+            "walletBalance": "Number",
+            "createdAt": "Date"
+        }
+    ],
+    "venues": [
+        {
+            "_id": "ObjectId",
+            "name": "String",
+            "sport": ["String"],
+            "location": "String",
+            "rating": "Number",
+            "images": [
+                "String"
+            ],
+            "amenities": [
+                "String"
+            ],
+            "startWorkingHours": "String",
+            "endWorkingHours": "String",
+            "defaultHourPrice": "Number",
+            "customHourPrices": [
+                {
+                    "hour": "Number",
+                    "pricePerHour": "Number"
+                }
+            ],
+            "isActive": "Boolean"
+        }
+    ],    
+    
+    "amenities": [
+        {
+            "Parking": "Boolean",
+            "Cafeteria": "Boolean",
+            "Shower": "Boolean",
+            "Changing Room": "Boolean",
+            "Toilets": "Boolean",
+            "WiFi": "Boolean",
+            "Lockers": "Boolean",
+            "Flood Lights": "Boolean",
+            "Drinking Water": "Boolean",
+            "First Aid": "Boolean",
+            "Prayer Area": "Boolean",
+            "Equipment Rental": "Boolean"
+        }
+    ],
+    "bookings": [
+        {
+            "_id": "ObjectId",
+            "userId": "ObjectId",
+            "venueId": "ObjectId",
+            "date": "Date",
+            "startTime": "String",
+            "endTime": "String",
+            "totalPrice": "Number",
+            "status": "String",
+            "paymentStatus": "String",
+            "bookingCode": "String",
+            "qrCode": "String"
+        }
+    ],
+    "wallet": [
+        {
+            "_id": "ObjectId",
+            "userId": "ObjectId",
+            "balance": "Number"
+        }
+    ],
+    "wallet-transactions": [
+        {
+            "_id": "ObjectId",
+            "walletId": "ObjectId",
+            "type": "String",
+            "amount": "Number",
+            "status": "String",
+            "createdAt": "Date"
+        }
+    ],
+    "reviews": [
+        {
+            "_id": "ObjectId",
+            "userId": "ObjectId",
+            "venueId": "ObjectId",
+            "rating": "Number",
+            "comment": "String",
+            "createdAt": "Date"
+        }
+    ],
+    "notifications": [
+        {
+            "_id": "ObjectId",
+            "userId": "ObjectId",
+            "title": "String",
+            "body": "String",
+            "isRead": "Boolean",
+            "createdAt": "Date"
+        }
+    ],
+    "coupons": [
+        {
+            "_id": "ObjectId",
+            "code": "String",
+            "discountType": "String",
+            "discountValue": "Number",
+            "expiresAt": "Date",
+            "maxUsage": "Number",
+            "usedCount": "Number",
+            "isActive": "Boolean"
+        }
+    ],
+    "admins": [
+        {
+            "_id": "ObjectId",
+            "name": "String",
+            "email": "String",
+            "role": "String"
+        }
+    ],
+    "paymant": [
+        {
+            "_id": "String",
+            "bookingId": "ObjectId",
+            "userId": "ObjectId",
+            "amount": "Number",
+            "currency": "String",
+            "paymentMethod": "String",
+            "provider": "String",
+            "transactionId": "ObjectId",
+            "status": "String",
+            "paidAt": "Date"
+        }
+    ],
+    "favorites": [
+        {
+            "_id": "ObjectId",
+            "userId": "ObjectId",
+            "venueId": "ObjectId"
+        }
+    ],
+    "venueDetails": {
+        "venueId": "ObjectId",
+        "name": "String",
+        "sport": [
+            "String"
+        ],
+        "location": "String",
+        "rating": "Number",
+        "images": [
+            "String"
+        ],
+        "amenities": [
+            "String"
+        ],
+        "availableSlots": [
+            {
+                "date": "Date",
+                "slots": [
+                    {
+                        "startTime": "String",
+                        "endTime": "String",
+                        "isBooked": "Boolean"
+                    }
+                ]
+            }
+        ]
+    }
+
+}
