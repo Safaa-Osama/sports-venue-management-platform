@@ -12,24 +12,22 @@ import { BookingModule } from './modules/booking/booking.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { RedisModule } from './common/services/redis/redisModule';
 
-
-
 @Module({
   imports: [
-    // config 
+    // Config
     ConfigModule.forRoot({
       envFilePath: ['.env.development', '.env.production'],
       isGlobal: true,
     }),
 
-    // mongo db
+    // Mongo DB
     MongooseModule.forRoot(process.env.DB_LOCAL!, {
       onConnectionCreate: (connection: Connection) => {
         connection.on('connected', () => console.log('database connected'));
         connection.on('open', () => console.log('database open'));
-        connection.on('disconnected', () => console.log('database disconnected'),);
+        connection.on('disconnected', () => console.log('database disconnected'));
         connection.on('reconnected', () => console.log('database reconnected'));
-        connection.on('disconnecting', () => console.log('database disconnecting'),);
+        connection.on('disconnecting', () => console.log('database disconnecting'));
 
         return connection;
       },
@@ -41,11 +39,10 @@ import { RedisModule } from './common/services/redis/redisModule';
     BookingModule,
     PaymentModule,
     RedisModule,
- JwtModule.register({ global: true }),
   ],
 
   exports: [],
   providers: [AppService],
   controllers: [AppController],
 })
-export class AppModule { }
+export class AppModule {}

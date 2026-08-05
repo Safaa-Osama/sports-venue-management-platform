@@ -1,51 +1,32 @@
-
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import { TokenService } from '../services/token/tokenService';
-import { UserRepo } from 'src/common/reposetories/user-repo';
-import RedisService from '../services/redis/redis.service';
 import { Reflector } from '@nestjs/core';
-import { IRequest } from 'utilis/types/request.type';
 import { RoleEnum } from '../enums/userEnum';
 
 @Injectable()
 export class authorizationGuard implements CanActivate {
-
-
-  constructor(
-    private readonly tokenService: TokenService,
-    private readonly userRepo: UserRepo,
-    private readonly redisService: RedisService,
-    private readonly reflector: Reflector,
-  ) { }
+  constructor(private readonly reflector: Reflector) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    let req!: IRequest | any
-    let authorization: string | undefined
-
-    if (context.getType() == "http") {
-      req = context.switchToHttp().getRequest();
-      authorization = req?.headers?.authorization;
-    }
-
-    if (!authorization) {
-      throw new UnauthorizedException("Authorization token is required");
-    }
-    const [prefix, token] = authorization.split(" ");
-    if (!token || !prefix) {
-      throw new UnauthorizedException("Invalid authorization token");
-    }
-
+    const req = context.switchToHttp().getRequest();
     const user = req.user;
+
     if (!user) {
-      throw new UnauthorizedException("Unauthorized");
+      throw new UnauthorizedException('Unauthorized access');
     }
 
-    const allowedRoles: RoleEnum[] = this.reflector.getAllAndOverride('roles', [context.getHandler(), context.getClass()]);
+    const allowedRoles: RoleEnum[] = this.reflector.getAllAndOverride('roles', [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
-    if (allowedRoles && !allowedRoles.includes(user.role)) {
-      throw new UnauthorizedException("Unauthorized");
+    if (!allowedRoles || allowedRoles.length === 0) {
+      return true;
     }
 
-    return allowedRoles?.includes(user.role);
+    if (!user.role || !allowedRoles.includes(user.role)) {
+      throw new UnauthorizedException('Forbidden: Insufficient permissions');
+    }
+
+    return true;
   }
 }

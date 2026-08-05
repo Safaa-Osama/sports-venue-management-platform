@@ -1,10 +1,10 @@
 import { MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import { User } from 'src/modules/user/entities/user.entity';
+import { AdminUser } from 'src/modules/user/entities/admin-user.entity';
 
 export type VenueDocument = HydratedDocument<Venue>;
 
- class VenueAmenities {
+export class VenueAmenities {
   @Prop({ type: Boolean, default: false })
   Parking: boolean;
 
@@ -55,7 +55,7 @@ export class Venue {
   venueName: string;
 
   @Prop({ type: [String], required: true })
-  sport: string[];
+  sportsType: string[];
 
   @Prop({ type: String, required: true })
   address: string;
@@ -70,7 +70,7 @@ export class Venue {
   images: string[];
 
   @Prop({ type: VenueAmenities, required: true })
-  amenities: VenueAmenities[];
+  amenities: VenueAmenities;
 
   @Prop({ type: Number, required: true })
   endWorkingHours: number;
@@ -95,10 +95,10 @@ export class Venue {
   @Prop({ type: Boolean, default: true })
   isActive: boolean;
 
-  @Prop({ type: Types.ObjectId, ref: User.name, required: true })
+  @Prop({ type: Types.ObjectId, ref: AdminUser.name, required: true })
   createdBy: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: User.name })
+  @Prop({ type: Types.ObjectId, ref: AdminUser.name })
   updatedBy?: Types.ObjectId;
 }
 

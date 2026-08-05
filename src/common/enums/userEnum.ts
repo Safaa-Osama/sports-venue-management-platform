@@ -5,6 +5,7 @@ export enum ProviderEnum {
 }
 
 export enum RoleEnum {
+  user = "user",
   customer = 'customer',
   admin = 'admin',
   superAdmin = 'superAdmin',

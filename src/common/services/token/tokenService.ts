@@ -1,78 +1,91 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService, JwtSignOptions, JwtVerifyOptions } from '@nestjs/jwt';
-import { UserRepo } from 'src/common/reposetories/user-repo';
+import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
+import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
 import RedisService from '../redis/redis.service';
 
 @Injectable()
 export class TokenService {
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly customerUserRepo: CustomerUserRepo,
+    private readonly adminUserRepo: AdminUserRepo,
+    private readonly redisService: RedisService,
+  ) {}
 
-    constructor(
-        private readonly jwtService: JwtService,
-        private readonly userRepo: UserRepo,
-        private readonly redisService: RedisService,
-    ) { }
+  generateToken({
+    payload,
+    options,
+  }: {
+    payload: object;
+    options?: JwtSignOptions;
+  }): Promise<string> {
+    return this.jwtService.signAsync(payload, options);
+  }
 
-    generateToken({ payload, options }: {
-        payload: object;
-        options?: JwtSignOptions;
-    }): Promise<string> {
-        return this.jwtService.signAsync(payload, options);
+  verifyToken({
+    token,
+    options,
+  }: {
+    token: string;
+    options?: JwtVerifyOptions;
+  }): Promise<object> {
+    return this.jwtService.verifyAsync(token, options);
+  }
+
+  getAccessSecret(): string {
+    return process.env.JWT_ACCESS_SECRET || process.env.SECRET_KEY_USER || 'default_access_secret';
+  }
+
+  getRefreshSecret(): string {
+    return process.env.JWT_REFRESH_SECRET || process.env.REFRESH_SECRET_KEY_USER || 'default_refresh_secret';
+  }
+
+  async authenticateToken_fetchUser(token: string) {
+    const secret = this.getAccessSecret();
+    let decoded: any;
+
+    try {
+      decoded = await this.verifyToken({ token, options: { secret } });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired token');
     }
 
-    verifyToken({ token, options }: {
-        token: string;
-        options?: JwtVerifyOptions;
-    }): Promise<object> {
-        return this.jwtService.verifyAsync(token, options);
+    if (!decoded?.jti || !decoded?.id) {
+      throw new UnauthorizedException('Invalid token payload');
     }
 
-    async getSignature(prefix: string) {
+    let user: any = null;
 
-        let ACCESS_SECRET_KEY: string = "";
-        let REFRESH_SECRET_KEY: string = "";
-
-        if (prefix === process.env.PREFIX_USER) {
-            ACCESS_SECRET_KEY = process.env.SECRET_KEY_USER!;
-            REFRESH_SECRET_KEY = process.env.REFRESH_SECRET_KEY_USER!;
-        } else if (prefix === process.env.PREFIX_ADMIN) {
-            ACCESS_SECRET_KEY = process.env.SECRET_KEY_ADMIN!;
-            REFRESH_SECRET_KEY = process.env.REFRESH_SECRET_KEY_ADMIN!;
-        } else {
-            throw new BadRequestException("Invalid role");
-        }
-
-        return { ACCESS_SECRET_KEY, REFRESH_SECRET_KEY }
+    if (decoded.userType === 'customer') {
+      user = await this.customerUserRepo.findOne({
+        filter: { _id: decoded.id },
+      });
+    } else if (decoded.userType === 'admin') {
+      user = await this.adminUserRepo.findOne({
+        filter: { _id: decoded.id },
+      });
+    } else {
+      // Fallback lookup across both
+      user = (await this.customerUserRepo.findOne({ filter: { _id: decoded.id } })) ||
+             (await this.adminUserRepo.findOne({ filter: { _id: decoded.id } }));
     }
 
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
 
-    async authenticateToken_fetchUser(token: string, secret: string) {
-        console.log("SECRET USED:", secret);
-        console.log("TOKEN:", token);
-        const decoded = await this.verifyToken({ token, options: { secret } }) as any;
+    const revoked = await this.redisService.getValue(
+      this.redisService.revokedKey({
+        userId: user._id,
+        jti: decoded.jti,
+      }),
+    );
 
-        if (!decoded?.jti || !decoded?.id) {
-            throw new BadRequestException("invalid authorization !");
-        }
+    if (revoked) {
+      throw new UnauthorizedException('Token has been revoked');
+    }
 
-        const user = await this.userRepo.findOne({
-            filter: { _id: decoded.id },
-        });
-
-        if (!user) {
-            throw new BadRequestException("user not found");
-        }
-
-        const revoked = await this.redisService.getValue(
-            this.redisService.revokedKey({
-                userId: user._id,
-                jti: decoded.jti!,
-            })
-        );
-
-        if (revoked) {
-            throw new BadRequestException("Invalid token revoked");
-        }
-        return { user, decoded };
-    };
-
+    return { user, decoded };
+  }
 }

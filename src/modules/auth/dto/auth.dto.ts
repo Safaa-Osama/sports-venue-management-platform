@@ -1,29 +1,59 @@
-import { Type } from "class-transformer";
-import { IsDate, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, Min } from "class-validator";
-import { GenderEnum, ProviderEnum, RoleEnum } from "src/common/enums/userEnum";
+import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { RoleEnum } from 'src/common/enums/userEnum';
 
-export class CreateUserDto {
-    @IsString()
-    @IsNotEmpty()
-    userName: string;
+export class CustomerSendOtpDto {
+  @IsString()
+  @IsNotEmpty()
+  phone: string;
+}
 
-    @IsString()
-    @IsNotEmpty()
-    phone: string[]
+export class CustomerVerifyOtpDto {
+  @IsString()
+  @IsNotEmpty()
+  phone: string;
 
-    @IsEnum(RoleEnum)
-    @IsOptional()
-    role: RoleEnum
+  @IsString()
+  @IsNotEmpty()
+  code: string;
 
-    @IsString()
-    @IsOptional()
-    avatar: string
+  @IsString()
+  @IsOptional()
+  userName?: string;
 
-    @IsNumber()
-    @IsOptional()
-    walletBalance: number
+  @IsString()
+  @IsOptional()
+  position?: string;
 
-    @IsString()
-    @IsOptional()
-    position: string
+  @IsString()
+  @IsOptional()
+  avatar?: string;
+}
+
+export class DashboardLoginDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+}
+
+export class CreateAdminDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6)
+  password: string;
+
+  @IsString()
+  @IsNotEmpty()
+  userName: string;
+
+  @IsEnum(RoleEnum)
+  @IsOptional()
+  role?: RoleEnum;
 }
