@@ -1,6 +1,6 @@
 import { DeleteObjectCommand, DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, ObjectCannedACL, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { randomUUID } from "node:crypto";
-import fs from 'node:fs'
+import fs from 'node:fs';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { StoreEnum } from "src/common/enums/multerEnum";
@@ -8,8 +8,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 
 @Injectable()
 export class S3Service {
-
-    private client: S3Client
+    private client: S3Client;
 
     constructor() {
         this.client = new S3Client({
@@ -18,7 +17,7 @@ export class S3Service {
                 accessKeyId: process.env.AWS_ACCESS_KEY!,
                 secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!
             }
-        })
+        });
     }
 
     async uploadFile({
@@ -26,26 +25,33 @@ export class S3Service {
         path = "General",
         file,
         store_type = StoreEnum.memory
-
     }: {
-        ACL?: ObjectCannedACL,
-        path?: string,
-        file: Express.Multer.File,
-        store_type?: StoreEnum
+        ACL?: ObjectCannedACL;
+        path?: string;
+        file: Express.Multer.File;
+        store_type?: StoreEnum;
     }): Promise<string> {
+        if (!file) {
+            throw new BadRequestException("No file provided for upload");
+        }
+
+        const fileName = file.filename || file.originalname || 'file';
+        const key = `${process.env.AWS_APP_NAME || 'app'}/${path}/${randomUUID()}_${fileName}`;
+
         const command = new PutObjectCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
             ACL,
-            Key: `${process.env.AWS_APP_NAME}/${path}/${randomUUID()}_${file.originalname}`,
-            Body: store_type == StoreEnum.memory ? file.buffer : fs.createReadStream(file.path),
+            Key: key,
+            Body: store_type === StoreEnum.memory ? file.buffer : fs.createReadStream(file.path),
             ContentType: file.mimetype
-        })
+        });
 
-        if (!command.input.Key) {
-            throw new BadRequestException("Fail to upload file ..")
+        try {
+            await this.client.send(command);
+            return key;
+        } catch {
+            throw new BadRequestException("Failed to upload file to storage.");
         }
-        await this.client.send(command)
-        return command.input.Key
     }
 
     async uploadLargeFile({
@@ -53,31 +59,36 @@ export class S3Service {
         path = "General",
         file,
         store_type = StoreEnum.disk
-
     }: {
-        ACL?: ObjectCannedACL,
-        path?: string,
-        file: Express.Multer.File,
-        store_type?: StoreEnum
+        ACL?: ObjectCannedACL;
+        path?: string;
+        file: Express.Multer.File;
+        store_type?: StoreEnum;
     }): Promise<string> {
+        if (!file) {
+            throw new BadRequestException("No file provided for upload");
+        }
+
+        const fileName = file.filename || file.originalname || 'file';
+        const key = `${process.env.AWS_APP_NAME || 'app'}/${path}/${randomUUID()}_${fileName}`;
+
         const command = new Upload({
             client: this.client,
             params: {
                 Bucket: process.env.AWS_BUCKET_NAME,
                 ACL,
-                Key: `${process.env.AWS_APP_NAME}/${path}/${randomUUID()}_${file.filename}`,
-                Body: store_type == StoreEnum.memory ? file.buffer : fs.createReadStream(file.path),
+                Key: key,
+                Body: store_type === StoreEnum.memory ? file.buffer : fs.createReadStream(file.path),
                 ContentType: file.mimetype
             }
-        })
+        });
 
-        command.on("httpUploadProgress", (progress) => {
-            console.log({ progress })
-            console.log(`${(progress.loaded as number) / (progress.total as number)}*100 % `)
-        })
-
-        const res = await command.done()
-        return res.Key as string
+        try {
+            const res = await command.done();
+            return res.Key || key;
+        } catch {
+            throw new BadRequestException("Failed to upload large file to storage.");
+        }
     }
 
     async uploadFiles({
@@ -86,43 +97,47 @@ export class S3Service {
         files,
         store_type = StoreEnum.memory,
         isLarge = false
-
     }: {
-        ACL?: ObjectCannedACL,
-        path?: string,
-        files: Express.Multer.File[],
-        store_type?: StoreEnum,
-        isLarge?: boolean
-    }) {
+        ACL?: ObjectCannedACL;
+        path?: string;
+        files: Express.Multer.File[];
+        store_type?: StoreEnum;
+        isLarge?: boolean;
+    }): Promise<string[]> {
+        if (!files || files.length === 0) return [];
 
-        let urls: string[] = [];
-        if (isLarge) {
-            urls = await Promise.all(files.map((file) => {
-                return this.uploadLargeFile({ ACL, path, store_type, file })
-            }))
-        } else {
-            urls = await Promise.all(files.map((file) => {
-                return this.uploadFile({ ACL, path, store_type, file })
-            }))
+        const uploadedKeys: string[] = [];
+
+        try {
+            for (const file of files) {
+                const key = isLarge
+                    ? await this.uploadLargeFile({ ACL, path, store_type, file })
+                    : await this.uploadFile({ ACL, path, store_type, file });
+                uploadedKeys.push(key);
+            }
+            return uploadedKeys;
+        } catch (error) {
+            if (uploadedKeys.length > 0) {
+                await this.deleteManyFiles(uploadedKeys).catch(() => {});
+            }
+            throw error;
         }
-
-        return urls
     }
 
     async getFile(Key: string) {
         const command = new GetObjectCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
             Key
-        })
-        return await this.client.send(command)
+        });
+        return await this.client.send(command);
     }
 
     async getManyFiles(folderName: string) {
         const command = new ListObjectsV2Command({
             Bucket: process.env.AWS_BUCKET_NAME,
-            Prefix: `${process.env.AWS_APP_NAME}/users/${folderName}`
-        })
-        return await this.client.send(command)
+            Prefix: `${process.env.AWS_APP_NAME || 'app'}/users/${folderName}`
+        });
+        return await this.client.send(command);
     }
 
     async createPreSignedUrl({
@@ -131,20 +146,20 @@ export class S3Service {
         ContentType,
         expiresIn = 60 * 10
     }: {
-        path?: string,
-        fileName: string,
-        ContentType: string,
-        expiresIn?: number
+        path?: string;
+        fileName: string;
+        ContentType: string;
+        expiresIn?: number;
     }) {
-        const Key = `${process.env.AWS_APP_NAME}/${path}/${randomUUID()}_${fileName}`
+        const Key = `${process.env.AWS_APP_NAME || 'app'}/${path}/${randomUUID()}_${fileName}`;
         const command = new PutObjectCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
             Key,
             ContentType
-        })
+        });
 
-        const url = await getSignedUrl(this.client, command, { expiresIn })
-        return { url, Key }
+        const url = await getSignedUrl(this.client, command, { expiresIn });
+        return { url, Key };
     }
 
     async getPreSignedUrl({
@@ -152,36 +167,37 @@ export class S3Service {
         expiresIn = 60 * 10,
         download = "true"
     }: {
-        Key: string,
-        expiresIn?: number,
-        download?: string | undefined
+        Key: string;
+        expiresIn?: number;
+        download?: string | undefined;
     }) {
         const command = new GetObjectCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
             Key,
-            ResponseContentDisposition: `attachment; filename="${Key.split("/").pop()}"`
-        })
+            ResponseContentDisposition: download === "true" ? `attachment; filename="${Key.split("/").pop()}"` : undefined
+        });
 
-        const url = await getSignedUrl(this.client, command, { expiresIn })
-        return { url }
+        const url = await getSignedUrl(this.client, command, { expiresIn });
+        return { url };
     }
 
     async deleteFile(Key: string) {
+        if (!Key) return;
         const command = new DeleteObjectCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
             Key
-        })
-        return await this.client.send(command)
+        });
+        return await this.client.send(command);
     }
 
     async deleteManyFiles(Keys: string[]) {
-        const mappedKey = Keys.map((k) => { return { Key: k } })
+        if (!Keys || Keys.length === 0) return;
+        const mappedKey = Keys.map((k) => ({ Key: k }));
         const command = new DeleteObjectsCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
             Delete: { Objects: mappedKey }
-        })
-        return await this.client.send(command)
+        });
+        return await this.client.send(command);
     }
-
 }
 

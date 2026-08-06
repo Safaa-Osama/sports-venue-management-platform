@@ -1,52 +1,77 @@
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString } from "class-validator";
-import { IsNotEmpty } from "class-validator";
+import { Type } from 'class-transformer';
+import {
+  IsArray, IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, ValidateNested,
+} from 'class-validator';
+import { ParseArray, ParseBoolean, ParseByJson } from 'src/common/decorator/transform.decorator';
+
+export class CustomHourPriceDto {
+  @IsNumber()
+  @Type(() => Number)
+  hour: number;
+
+  @IsNumber()
+  @Type(() => Number)
+  pricePerHour: number;
+}
 
 export class CreateVenueDto {
-    @IsNotEmpty()
-    @IsString()
-    venueName: string;
+  @IsNotEmpty()
+  @IsString()
+  venueName: string;
 
-    @IsNotEmpty()
-    @IsString()
-    address: string;
+  @IsNotEmpty()
+  @IsString()
+  address: string;
 
-    @IsNotEmpty()
-    @IsString()
-    sportsType: [string];
+  @IsNotEmpty()
+  @IsArray()
+  @IsString({ each: true })
+  @ParseArray()
+  sportsType: string[];
 
-    @IsNotEmpty()
-    @IsNumber()
-    locationAlt: number;
+  @IsNotEmpty()
+  @IsNumber()
+  @Type(() => Number)
+  locationAlt: number;
 
-    @IsNotEmpty()
-    @IsNumber()
-    locationLang: number;
+  @IsNotEmpty()
+  @IsNumber()
+  @Type(() => Number)
+  locationLang: number;
 
-    @IsNotEmpty()
-    @IsArray()
-    images: string[];
+  @IsNotEmpty()
+  @IsArray()
+  @IsString({ each: true })
+  @ParseArray()
+  amenities: string[];
 
-    @IsNotEmpty()
-    @IsArray()
-    amenities: string[];
+  @IsNotEmpty()
+  @IsNumber()
+  @IsPositive()
+  @Type(() => Number)
+  startWorkingHours: number;
 
-    @IsNotEmpty()
-    @IsNumber()
-    startWorkingHours: number;
+  @IsNotEmpty()
+  @IsNumber()
+  @IsPositive()
+  @Type(() => Number)
+  endWorkingHours: number;
 
-    @IsNotEmpty()
-    @IsNumber()
-    endWorkingHours: number;
+  @IsNotEmpty()
+  @IsNumber()
+  @IsPositive()
+  @Type(() => Number)
+  defaultHourPrice: number;
 
-    @IsNotEmpty()
-    @IsNumber()
-    defaultHourPrice: number;
+  @IsOptional()
+  @IsArray()
+  @ParseByJson()
+  @Type(() => CustomHourPriceDto)
+  @ValidateNested({ each: true })
+  customHourPrices?: CustomHourPriceDto[];
 
-    @IsOptional()
-    @IsArray()
-    customHourPrices: { hour: number; pricePerHour: number }[];
-
-    @IsOptional()
-    @IsBoolean()
-    isActive: boolean;
+  @IsOptional()
+  @ParseBoolean()
+  @IsBoolean()
+  isActive?: boolean;
 }

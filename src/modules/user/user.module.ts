@@ -8,6 +8,7 @@ import adminUserModel from './entities/admin-user.entity';
 import { TokenService } from 'src/common/services/token/tokenService';
 import { JwtService } from '@nestjs/jwt';
 import RedisService from 'src/common/services/redis/redis.service';
+import { S3Service } from 'src/common/services/s3Service/s3.service';
 
 @Module({
   imports: [customerUserModel, adminUserModel],
@@ -19,6 +20,7 @@ import RedisService from 'src/common/services/redis/redis.service';
     TokenService,
     JwtService,
     RedisService,
+    S3Service,
   ],
   exports: [CustomerUserRepo, AdminUserRepo, customerUserModel, adminUserModel],
 })

@@ -4,7 +4,7 @@ import { IRequest } from 'src/utilis/types/request.type';
 
 @Injectable()
 export class AuthenticationGuard implements CanActivate {
-  constructor(private readonly tokenService: TokenService) {}
+  constructor(private readonly tokenService: TokenService) { }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     let req: IRequest | any;
@@ -23,12 +23,9 @@ export class AuthenticationGuard implements CanActivate {
     if (!authorization) {
       throw new UnauthorizedException('Authorization token is required');
     }
-
-    const parts = authorization.split(' ');
-    const token = parts.length === 2 ? parts[1] : parts[0];
-
-    if (!token) {
-      throw new UnauthorizedException('Invalid authorization token format');
+    const [prefix, token] = authorization.split(" ");
+    if (!token || !prefix) {
+      throw new UnauthorizedException("Invalid authorization token");
     }
 
     const { user, decoded } = await this.tokenService.authenticateToken_fetchUser(token);

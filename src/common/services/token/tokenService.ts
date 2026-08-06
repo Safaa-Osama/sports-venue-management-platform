@@ -66,7 +66,6 @@ export class TokenService {
         filter: { _id: decoded.id },
       });
     } else {
-      // Fallback lookup across both
       user = (await this.customerUserRepo.findOne({ filter: { _id: decoded.id } })) ||
              (await this.adminUserRepo.findOne({ filter: { _id: decoded.id } }));
     }

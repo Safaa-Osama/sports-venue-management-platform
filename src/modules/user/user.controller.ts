@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UserService } from './user.service';
-import { AuthenticationGuard } from 'src/common/guards/authentication.guard';
 import { User } from 'src/common/decorator/user.decorator';
 import { auth } from 'src/common/decorator/auth.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
@@ -20,7 +20,7 @@ export class UserController {
     return this.userService.getAllAdmins();
   }
 
-  @UseGuards(AuthenticationGuard)
+  @auth({ roles: [RoleEnum.user, RoleEnum.admin, RoleEnum.superAdmin, RoleEnum.owner, RoleEnum.customer] })
   @Get('profile')
   getProfile(@User() user: any) {
     return this.userService.getProfile(user);
@@ -28,11 +28,13 @@ export class UserController {
 
   @auth({ roles: [RoleEnum.admin, RoleEnum.superAdmin, RoleEnum.owner] })
   @Patch('customers/:id')
+  @UseInterceptors(FileInterceptor('avatar'))
   async updateCustomerUser(
     @Param('id') id: string,
     @Body() body: UpdateCustomerUserDto,
+    @UploadedFile() avatar?: Express.Multer.File,
   ) {
-    const updatedCustomer = await this.userService.updateCustomerUser(id, body);
+    const updatedCustomer = await this.userService.updateCustomerUser(id, body, avatar);
     return {
       message: 'Customer user updated successfully',
       data: updatedCustomer,

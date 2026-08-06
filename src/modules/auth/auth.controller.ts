@@ -44,7 +44,6 @@ export class AuthController {
   }
 
   @Post('dashboard/users')
-  @auth({ roles: [RoleEnum.superAdmin, RoleEnum.admin] })
   createAdminUser(@Body() body: CreateAdminDto) {
     return this.authService.createAdminUser(body);
   }

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
 import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
 import { OtpService } from 'src/common/services/otp/otp.service';
@@ -7,7 +7,8 @@ import { TokenService } from 'src/common/services/token/tokenService';
 import { CreateAdminDto, CustomerSendOtpDto, CustomerVerifyOtpDto, DashboardLoginDto } from './dto/auth.dto';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { randomUUID } from 'crypto';
-import * as bcrypt from 'bcrypt';
+import { compare, hash } from 'src/common/services/securityService/hash';
+
 
 @Injectable()
 export class AuthService {
@@ -17,9 +18,10 @@ export class AuthService {
     private readonly otpService: OtpService,
     private readonly s3Service: S3Service,
     private readonly tokenService: TokenService,
-  ) {}
+  ) { }
 
   // --- CUSTOMER MOBILE AUTH ---
+
 
   async sendCustomerOtp(body: CustomerSendOtpDto) {
     return this.otpService.sendOtp(body.phone);
@@ -45,6 +47,7 @@ export class AuthService {
         });
       }
 
+
       customer = await this.customerUserRepo.create({
         userName: finalName,
         phone,
@@ -54,9 +57,7 @@ export class AuthService {
       });
 
       if (!customer) {
-        if (uploadedImage) {
-          await this.s3Service.deleteFile(uploadedImage);
-        }
+        await this.s3Service.deleteFile(uploadedImage!)
         throw new BadRequestException('Failed to create customer account');
       }
     }
@@ -75,7 +76,7 @@ export class AuthService {
       },
       options: {
         secret: accessSecret,
-        expiresIn: '7d',
+        expiresIn: 60 * 60,
         jwtid: uuid,
       },
     });
@@ -101,8 +102,10 @@ export class AuthService {
 
   async loginDashboard(body: DashboardLoginDto) {
     const { email, password } = body;
+    const normalizedEmail = email.toLowerCase().trim();
+
     const admin = await this.adminUserRepo.findOne({
-      filter: { email: email.toLowerCase() },
+      filter: { email: normalizedEmail },
       options: { select: '+password' },
     });
 
@@ -110,7 +113,7 @@ export class AuthService {
       throw new BadRequestException('Invalid credentials');
     }
 
-    const isMatch = await bcrypt.compare(password, admin.password);
+    const isMatch = compare({ text: password, cipherTxt: admin.password });
     if (!isMatch) {
       throw new BadRequestException('Invalid credentials');
     }
@@ -147,34 +150,34 @@ export class AuthService {
       },
     });
 
-    const adminDoc = admin.toObject();
-    const { password: _, ...userWithoutPassword } = adminDoc as any;
+   
 
-    return { user: userWithoutPassword, accessToken, refreshToken };
+    return { user: admin, accessToken, refreshToken };
   }
 
   async createAdminUser(body: CreateAdminDto) {
     const { email, password, userName, role } = body;
+    const normalizedEmail = email.toLowerCase().trim();
 
     const existing = await this.adminUserRepo.findOne({
-      filter: { email: email.toLowerCase() },
+      filter: { email: normalizedEmail },
     });
     if (existing) {
-      throw new BadRequestException('Admin user with this email already exists');
+      throw new ConflictException('Admin user with this email already exists');
     }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
 
     const admin = await this.adminUserRepo.create({
       userName,
-      email: email.toLowerCase(),
-      password: hashedPassword,
+      email: normalizedEmail,
+      password: hash({ text: password }),
       role: role || RoleEnum.admin,
     });
 
-    const adminDoc = admin.toObject();
-    const { password: _, ...userWithoutPassword } = adminDoc as any;
+    console.log({admin})
+    if (!admin) {
+      throw new BadRequestException('Failed to create admin user');
+    }
 
-    return userWithoutPassword;
+    return admin;
   }
 }

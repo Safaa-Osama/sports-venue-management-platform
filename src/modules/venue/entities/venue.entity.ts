@@ -69,7 +69,7 @@ export class Venue {
   @Prop({ type: [String], required: true })
   images: string[];
 
-  @Prop({ type: VenueAmenities, required: true })
+  @Prop({ type: VenueAmenities })
   amenities: VenueAmenities;
 
   @Prop({ type: Number, required: true })

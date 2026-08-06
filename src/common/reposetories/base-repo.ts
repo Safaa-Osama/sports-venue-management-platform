@@ -35,23 +35,29 @@ abstract class BaseRepo<TDocument> {
     return this.Model.findOne(filter, projection, options);
   }
 
- public async find({
-  filter,
-  projection,
-  options,
-}: {
-  filter?: QueryFilter<TDocument>;
-  projection?: ProjectionType<TDocument>;
-  options?: QueryOptions<TDocument>;
-} = {}): Promise<HydratedDocument<TDocument>[]> {
-    let query = this.Model.find(filter, projection)
-      .sort(options?.sort)
-      .limit(options?.limit!)
-      .skip(options?.skip!);
+  public async find({
+    filter,
+    projection,
+    options,
+  }: {
+    filter?: QueryFilter<TDocument>;
+    projection?: ProjectionType<TDocument>;
+    options?: QueryOptions<TDocument>;
+  } = {}): Promise<HydratedDocument<TDocument>[]> {
+    let query = this.Model.find(filter ?? {}, projection);
+    if (options?.sort) {
+      query = query.sort(options.sort);
+    }
+    if (options?.skip !== undefined && options?.skip !== null) {
+      query = query.skip(options.skip);
+    }
+    if (options?.limit !== undefined && options?.limit !== null) {
+      query = query.limit(options.limit);
+    }
     if (options?.populate) {
       query = query.populate(options.populate as PopulateOptions);
     }
-    return query;
+    return query.exec();
   }
 
   async findOneAndUpdate({
@@ -74,7 +80,7 @@ abstract class BaseRepo<TDocument> {
     update,
     options,
   }: {
-    id: Types.ObjectId;
+    id: string | Types.ObjectId;
     update: UpdateQuery<TDocument>;
     options?: QueryOptions<TDocument>;
   }): Promise<HydratedDocument<TDocument> | null> {
@@ -98,7 +104,7 @@ abstract class BaseRepo<TDocument> {
     filter?: QueryFilter<TDocument>;
     options?: QueryOptions<TDocument> | null;
   }): Promise<DeleteResult> {
-    return this.Model.deleteMany(filter, options as any);
+    return this.Model.deleteMany(filter ?? {}, options as any);
   }
 
   async paginate({
@@ -116,30 +122,28 @@ abstract class BaseRepo<TDocument> {
     populate?: PopulateOptions | PopulateOptions[];
     search?: QueryFilter<TDocument>;
   }) {
-    page = +page! || 1;
-    limit = +limit! || 2;
+    page = Number(page) || 1;
+    limit = Number(limit) || 10;
 
-    if (page < 1) {
-      page = 1;
-    }
-    if (limit < 1) {
-      limit = 2;
-    }
-    if (!skip) {
-      skip = (page - 1) * limit;
-    }
+    if (page < 1) page = 1;
+    if (limit < 1) limit = 10;
 
-    let query = this.Model.find({ ...(search ?? {}) })
+    const computedSkip = skip !== undefined ? skip : (page - 1) * limit;
+
+    let query = this.Model.find(search ?? {})
       .limit(limit)
-      .skip(skip)
-      .sort(sort);
+      .skip(computedSkip);
+
+    if (sort) {
+      query = query.sort(sort);
+    }
     if (populate) {
       query = query.populate(populate);
     }
 
     const [data, totalDoc] = await Promise.all([
       query.exec(),
-      this.Model.countDocuments({ ...(search ?? {}) }),
+      this.Model.countDocuments(search ?? {}),
     ]);
     const totalPages = Math.ceil(totalDoc / limit);
 
@@ -154,16 +158,14 @@ abstract class BaseRepo<TDocument> {
     };
   }
 
-  // async exists(filter: QueryFilter<TDocument>) {
-  //     return this.Model.exists(filter)
-  // }
-  // const exists = await productRepo.exists(...)
+  async exists(filter: QueryFilter<TDocument>): Promise<boolean> {
+    const res = await this.Model.exists(filter);
+    return !!res;
+  }
 
-  // const product = await productRepo.findOne(...)
-
-  // async countDocuments(filter?: QueryFilter<TDocument>): Promise<number> {
-  //     return this.Model.countDocuments(filter)
-  // }
+  async countDocuments(filter?: QueryFilter<TDocument>): Promise<number> {
+    return this.Model.countDocuments(filter ?? {});
+  }
 }
 
 export default BaseRepo;
