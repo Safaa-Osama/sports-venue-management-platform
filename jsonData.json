@@ -17,16 +17,16 @@
     "amenities": [
         "String"
     ],
-    "startWorkingHours": "String",
-    "endWorkingHours": "String",
-    "defaultHourPrice": "Number",
+    "startWorkingHours": "number",
+    "endWorkingHours": "number",
+    "defaultHourPrice": "number",
     "customHourPrices": [
         {
-            "hour": "Number",
-            "pricePerHour": "Number"
+            "hour": "number",
+            "pricePerHour": "number"
         }
     ],
-    "isActive": "Boolean"
+    "isActive": "boolean"
 }
 
 //Venue POST request body   /api/venue/create

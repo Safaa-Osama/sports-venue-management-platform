@@ -10,6 +10,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 import { BookingModule } from './modules/booking/booking.module';
 import { PaymentModule } from './modules/payment/payment.module';
+import { CouponModule } from './modules/coupon/coupon.module';
 import { RedisModule } from './common/services/redis/redisModule';
 
 @Module({
@@ -38,6 +39,7 @@ import { RedisModule } from './common/services/redis/redisModule';
     UserModule,
     BookingModule,
     PaymentModule,
+    CouponModule,
     RedisModule,
   ],
 

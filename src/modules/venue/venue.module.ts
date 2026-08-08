@@ -25,5 +25,6 @@ import adminUserModel from '../user/entities/admin-user.entity';
     AdminUserRepo,
     RedisService,
   ],
+  exports: [],
 })
 export class VenueModule {}
