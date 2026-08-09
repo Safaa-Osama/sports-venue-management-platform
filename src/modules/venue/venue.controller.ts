@@ -14,11 +14,10 @@ export class VenueController {
   constructor(private readonly venueService: VenueService) {}
 
   @Post()
-  @auth({ roles: [  RoleEnum.admin] })
+  @auth({ roles: [  RoleEnum.admin,RoleEnum.superAdmin] })
   @UseInterceptors(
     FilesInterceptor(
-      'images',
-      5,
+      'images',5,
       multer_cloud({
         storeType: StoreEnum.memory,
         customType: MulterEnum.image,
@@ -31,10 +30,6 @@ export class VenueController {
     @User() user: AdminUserDocument,
     @UploadedFiles() images: Express.Multer.File[],
   ) {
-    const venue = await this.venueService.createVenue(body, user, images);
-    return {
-      message: 'Venue created successfully',
-      data: venue,
-    };
+    return this.venueService.createVenue(body, user, images);
   }
 }

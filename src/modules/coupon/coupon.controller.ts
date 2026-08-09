@@ -1,10 +1,10 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { auth } from 'src/common/decorator/auth.decorator';
+import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
+import type { AdminUserDocument } from '../user/entities/admin-user.entity';
 import { CouponService } from './coupon.service';
 import { CreateCouponDto, ValidateCouponDto } from './dto/coupon.dto';
-import { User } from 'src/common/decorator/user.decorator';
-import type { AdminUserDocument } from '../user/entities/admin-user.entity';
 
 @Controller('coupon')
 export class CouponController {

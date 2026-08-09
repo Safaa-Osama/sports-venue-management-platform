@@ -24,7 +24,7 @@ export class CouponService {
 
     const coupon = await this.couponRepo.create({
       createdBy: user._id,
-      code,
+      code: code.toUpperCase(),
       discount,
       startDate,
       endDate,

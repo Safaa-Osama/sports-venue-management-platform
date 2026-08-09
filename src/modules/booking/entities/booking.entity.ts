@@ -1,6 +1,6 @@
 import { MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import { BookingStatusEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
+import { BookingStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
 
 export type BookingDocument = HydratedDocument<Booking>;
 
@@ -45,6 +45,17 @@ export class Booking {
   @Prop({ type: String })
   couponCode?: string;
 
+  @Prop({ type: Number, default: 0 })
+  discountAmount?: number;
+
+  @Prop({ type: Number })
+  finalPrice?: number;
+
+  @Prop({ type: String, enum: PaymentMethodEnum })
+  paymentMethod?: PaymentMethodEnum;
+
+  @Prop({ type: Date })
+  expiresAt?: Date;
 }
 
 export const BookingSchema = SchemaFactory.createForClass(Booking);

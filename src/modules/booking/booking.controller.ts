@@ -4,7 +4,7 @@ import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { BookingService } from './booking.service';
 import {
-  CreateBookingDto, QueryBookingDto, UpdateBookingStatusDto,
+  CreateBookingDto, PayBookingDto, QueryBookingDto, UpdateBookingStatusDto,
 } from './dto/booking.dto';
 import type { UserDocument } from '../user/entities/user.entity';
 
@@ -13,13 +13,22 @@ export class BookingController {
   constructor(private readonly bookingService: BookingService) {}
 
   @Post()
-  @auth({ roles: [RoleEnum.customer, RoleEnum.user] })
-  async create(
+  @auth({ roles: [RoleEnum.customer, RoleEnum.user,RoleEnum.manager, RoleEnum.admin, RoleEnum.owner, RoleEnum.superAdmin] })
+  async createBookin(
     @Body() body: CreateBookingDto,
     @User() user: UserDocument,
   ) {
-    return await this.bookingService.create(body, user);
-   
+    return await this.bookingService.createBooking(body, user);
+  }
+
+  @Post(':bookingId/pay')
+  @auth({ roles: [RoleEnum.customer, RoleEnum.user] })
+  async payBooking(
+    @Param('bookingId') bookingId: string,
+    @Body() body: PayBookingDto,
+    @User() user: UserDocument,
+  ) {
+    return await this.bookingService.payBooking(bookingId, body, user);
   }
 
   @Get('my-bookings')

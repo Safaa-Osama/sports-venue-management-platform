@@ -1,4 +1,4 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RoleEnum } from '../enums/userEnum';
 
@@ -24,7 +24,7 @@ export class authorizationGuard implements CanActivate {
     }
 
     if (!user.role || !allowedRoles.includes(user.role)) {
-      throw new UnauthorizedException('Forbidden: Insufficient permissions');
+      throw new ForbiddenException('Forbidden: Insufficient permissions');
     }
 
     return true;

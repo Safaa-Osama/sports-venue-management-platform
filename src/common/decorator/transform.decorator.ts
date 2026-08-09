@@ -3,14 +3,8 @@ import { parseArrayOrJson, parseJson } from '../../utilis/transform.util'
 
 export function ParseArray() {
   return Transform(({ value }) => {
-    console.log("Before:", value);
-
     const result = parseArrayOrJson(value);
-
-    console.log("After:", result);
-
-    return result;
-  });
+    return result});
 }
 
 export function ParseByJson() {

@@ -8,8 +8,6 @@ export function parseArrayOrJson(value: any): any {
   if (!value.trim()) {
     return [];
   }
-
-  // إذا بدأ بـ [ يبقى غالبًا JSON Array
   if (value.trim().startsWith('[')) {
     try {
       const parsed = JSON.parse(value);
@@ -23,8 +21,6 @@ export function parseArrayOrJson(value: any): any {
       throw new BadRequestException('Invalid array format');
     }
   }
-
-  // غير JSON → اعتبره comma separated
   return value
     .split(',')
     .map(item => item.trim())

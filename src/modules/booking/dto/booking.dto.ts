@@ -1,16 +1,7 @@
 import { Type } from 'class-transformer';
-import {
-  IsDateString,
-  IsEnum,
-  IsInt,
-  IsMongoId,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  Max,
-  Min,
-} from 'class-validator';
-import { BookingStatusEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
+import { IsDate, IsDateString, IsEnum, IsInt, IsMongoId, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min, Validate, validate } from 'class-validator';
+import { isDateAfter } from 'src/common/decorator/coupon.decorator';
+import { BookingStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
 
 export class CreateBookingDto {
   @IsMongoId()
@@ -22,16 +13,32 @@ export class CreateBookingDto {
   date: string;
 
   @IsNumber()
-  @Min(0)
-  @Max(23)
   @IsNotEmpty()
+  @Validate(isDateAfter)
   startTime: number;
 
   @IsNumber()
-  @Min(1)
-  @Max(24)
   @IsNotEmpty()
+  @Validate(isDateAfter, ["startTime"])
   endTime: number;
+
+  @IsOptional()
+  @IsString()
+  couponCode?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethodEnum)
+  paymentMethod?: PaymentMethodEnum;
+}
+
+export class PayBookingDto {
+  @IsEnum(PaymentMethodEnum)
+  @IsNotEmpty()
+  paymentMethod: PaymentMethodEnum;
+
+  @IsOptional()
+  @IsString()
+  couponCode?: string;
 }
 
 export class QueryBookingDto {
@@ -56,8 +63,9 @@ export class QueryBookingDto {
   paymentStatus?: PaymentStatusEnum;
 
   @IsOptional()
-  @IsDateString()
-  date?: string;
+  @Type(() => Date)
+  @IsDate()
+  date?: Date;
 }
 
 export class UpdateBookingStatusDto {
