@@ -14,7 +14,7 @@ export class BookingController {
 
   @Post()
   @auth({ roles: [RoleEnum.customer, RoleEnum.user,RoleEnum.manager, RoleEnum.admin, RoleEnum.owner, RoleEnum.superAdmin] })
-  async createBookin(
+  async createBooking(
     @Body() body: CreateBookingDto,
     @User() user: UserDocument,
   ) {
@@ -22,7 +22,7 @@ export class BookingController {
   }
 
   @Post(':bookingId/pay')
-  @auth({ roles: [RoleEnum.customer, RoleEnum.user] })
+  @auth({})
   async payBooking(
     @Param('bookingId') bookingId: string,
     @Body() body: PayBookingDto,

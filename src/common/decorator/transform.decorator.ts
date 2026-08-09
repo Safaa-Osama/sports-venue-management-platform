@@ -1,4 +1,4 @@
-import { Transform } from 'class-transformer';
+import { plainToInstance, Transform } from 'class-transformer';
 import { parseArrayOrJson, parseJson } from '../../utilis/transform.util'
 
 export function ParseArray() {
@@ -7,8 +7,17 @@ export function ParseArray() {
     return result});
 }
 
-export function ParseByJson() {
-  return Transform(({ value }) => parseJson(value));
+export function ParseByJson(dtoClass?: any) {
+  return Transform(({ value }) => {
+    const parsed = parseJson(value);
+    if (dtoClass && Array.isArray(parsed)) {
+      return plainToInstance(dtoClass, parsed);
+    }
+    if (dtoClass && typeof parsed === 'object' && parsed !== null) {
+      return plainToInstance(dtoClass, parsed);
+    }
+    return parsed;
+  });
 }
 
 export function ParseBoolean() {

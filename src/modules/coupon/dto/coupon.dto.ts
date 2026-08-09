@@ -1,8 +1,8 @@
 import { PartialType } from "@nestjs/mapped-types";
 import { Type } from "class-transformer";
-import { IsBoolean, IsDate, IsEnum, IsMongoId, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, Max, Min, Validate } from "class-validator";
+import { IsBoolean, IsDate, IsEnum, IsMongoId, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, Validate } from "class-validator";
 import { AtLeastOne } from "src/common/decorator/AtLeastOne.decorator";
-import { isDateAfter } from "src/common/decorator/coupon.decorator";
+import { isDateAfter, discountValidation } from "src/common/decorator/coupon.decorator";
 import { CouponEnum } from "src/common/enums/couponEnum";
 
 export class CreateCouponDto {
@@ -15,10 +15,8 @@ export class CreateCouponDto {
     discountType: CouponEnum;
 
     @IsNumber()
-    @IsPositive()
     @IsNotEmpty()
-    @Min(1, { message: 'Discount must be at least 1%' })
-    @Max(100, { message: 'Discount cannot exceed 100%' })
+    @Validate(discountValidation)
     discount: number;
 
     @IsDate()

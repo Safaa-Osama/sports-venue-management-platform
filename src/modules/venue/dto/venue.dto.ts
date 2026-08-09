@@ -1,7 +1,9 @@
+import { PartialType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
 import {
   IsArray, IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, ValidateNested,
 } from 'class-validator';
+import { AtLeastOne } from 'src/common/decorator/AtLeastOne.decorator';
 import { ParseArray, ParseBoolean, ParseByJson } from 'src/common/decorator/transform.decorator';
 
 export class CustomHourPriceDto {
@@ -65,7 +67,7 @@ export class CreateVenueDto {
 
   @IsOptional()
   @IsArray()
-  @ParseByJson()
+  @ParseByJson(CustomHourPriceDto)
   @Type(() => CustomHourPriceDto)
   @ValidateNested({ each: true })
   customHourPrices?: CustomHourPriceDto[];
@@ -75,3 +77,7 @@ export class CreateVenueDto {
   @IsBoolean()
   isActive?: boolean;
 }
+
+@AtLeastOne(['venueName', 'address', 'sportsType', 'locationAlt', 'locationLang', 'amenities', 'startWorkingHours', 'endWorkingHours', 'defaultHourPrice', 'customHourPrices', 'isActive'])
+export class UpdateteVenueDto extends PartialType(CreateVenueDto){}
+export class UpdateVenueDto extends UpdateteVenueDto {}

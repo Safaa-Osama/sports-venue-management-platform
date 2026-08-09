@@ -6,6 +6,7 @@ import { CouponRepo } from 'src/common/reposetories/coupon-repo';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
 import { CreateCouponDto, UpdateCouponDto, ValidateCouponDto } from './dto/coupon.dto';
 import { UserRepo } from 'src/common/reposetories/user-repo';
+import { calculateCouponDiscount } from './utils/coupon-calculator.utils';
 
 
 @Injectable()
@@ -16,7 +17,7 @@ export class CouponService {
   ) { }
 
   async createCoupon(body: CreateCouponDto, user: AdminUserDocument) {
-    const { code, discount, startDate, endDate, maxUses, usesCount, isActive } = body
+    const { code, discountType, discount, startDate, endDate, maxUses, usesCount, isActive } = body
 
     if (await this.couponRepo.findOne({ filter: { code: code.toLowerCase() } })) {
       throw new BadRequestException('Coupon already exists')
@@ -25,6 +26,7 @@ export class CouponService {
     const coupon = await this.couponRepo.create({
       createdBy: user._id,
       code: code.toUpperCase(),
+      discountType,
       discount,
       startDate,
       endDate,
@@ -38,7 +40,7 @@ export class CouponService {
   }
 
   async updateCoupon(id: string, body: UpdateCouponDto, user: AdminUserDocument) {
-    const { code, discount, startDate, endDate, maxUses, usesCount, isActive } = body
+    const { code, discountType, discount, startDate, endDate, maxUses, usesCount, isActive } = body
 
     const coupon = await this.couponRepo.findOne({ filter: { _id: id, createdBy: user._id } })
     if (!coupon) {
@@ -47,6 +49,9 @@ export class CouponService {
 
     if (code) {
       coupon.code = code.toLowerCase()
+    }
+    if (discountType) {
+      coupon.discountType = discountType
     }
     if (discount) {
       coupon.discount = discount
@@ -63,7 +68,7 @@ export class CouponService {
     if (usesCount) {
       coupon.usesCount = usesCount
     }
-    if (isActive) {
+    if (isActive !== undefined) {
       coupon.isActive = isActive
     }
 
@@ -108,23 +113,20 @@ export class CouponService {
       throw new BadRequestException('Coupon has expired');
     }
 
-    let discountAmount = 0;
-    if (coupon.discountType === CouponEnum.percentage) {
-      discountAmount = (bookingAmount * coupon.discount) / 100;
-    } else if (coupon.discountType === CouponEnum.fixed) {
-      discountAmount = coupon.discount;
-    }
-
-    discountAmount = Math.min(discountAmount, bookingAmount);
-      const finalPrice = Math.max(0, bookingAmount - discountAmount);
+    const { discountAmount, finalPrice } = calculateCouponDiscount(
+      coupon.discountType,
+      coupon.discount,
+      bookingAmount,
+    );
 
     return {
       isValid: true,
       code: coupon.code,
       discount: coupon.discount,
       discountType: coupon.discountType,
-      discountAmount: Number(discountAmount.toFixed(2)),
-      finalPrice: Number(finalPrice.toFixed(2)),
+      discountAmount,
+      finalPrice,
     };
   }
+
 }

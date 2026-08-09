@@ -1,10 +1,10 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Param, Patch, Post } from '@nestjs/common';
 import { auth } from 'src/common/decorator/auth.decorator';
 import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import type { AdminUserDocument } from '../user/entities/admin-user.entity';
 import { CouponService } from './coupon.service';
-import { CreateCouponDto, ValidateCouponDto } from './dto/coupon.dto';
+import { CreateCouponDto, UpdateCouponDto, ValidateCouponDto } from './dto/coupon.dto';
 
 @Controller('coupon')
 export class CouponController {
@@ -22,8 +22,6 @@ export class CouponController {
   @Post('validate')
   @auth({
     roles: [
-      RoleEnum.customer,
-      RoleEnum.user,
       RoleEnum.admin,
       RoleEnum.superAdmin,
       RoleEnum.owner,
@@ -34,5 +32,24 @@ export class CouponController {
     @Body() body: ValidateCouponDto,
     @User() user: AdminUserDocument) {
     return await this.couponService.validateCoupon(body, user);
+  }
+
+  @Patch(':id')
+  @auth({ roles: [RoleEnum.admin, RoleEnum.superAdmin, RoleEnum.owner, RoleEnum.manager] })
+  async updateCoupon(
+    @Param('id') couponId: string,
+    @Body() body: UpdateCouponDto,
+    @User() user: AdminUserDocument
+  ) {
+    return this.couponService.updateCoupon(couponId, body, user);
+  }
+
+  @Delete(':id')
+  @auth({ roles: [RoleEnum.admin, RoleEnum.superAdmin, RoleEnum.owner, RoleEnum.manager] })
+  async deleteCoupon(
+    @Param('id') couponId: string,
+    @User() user: AdminUserDocument
+  ) {
+    return this.couponService.deleteCoupon(couponId, user);
   }
 }

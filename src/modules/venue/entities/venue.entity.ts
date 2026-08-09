@@ -100,6 +100,15 @@ export class Venue {
 
   @Prop({ type: Types.ObjectId, ref: AdminUser.name })
   updatedBy?: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: AdminUser.name })
+  deletedBy?: Types.ObjectId;
+
+  @Prop({ type: Date })
+  deletedAt?: Date;
+
+  @Prop({ type: Boolean, default: false })
+  isDeleted?: boolean;
 }
 
 export const VenueSchema = SchemaFactory.createForClass(Venue);
