@@ -1,5 +1,6 @@
 import { MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
+import { PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
 
 export type PaymentDocument = HydratedDocument<Payment>;
 
@@ -11,33 +12,38 @@ export type PaymentDocument = HydratedDocument<Payment>;
   toObject: { virtuals: true },
 })
 export class Payment {
-  @Prop({ required: true, type: Types.ObjectId, ref: 'Booking.name' })
+  @Prop({ required: true, type: Types.ObjectId, ref: 'Booking' })
   bookingId: Types.ObjectId;
 
-  @Prop({ required: true, type: Types.ObjectId, ref: 'User.name' })
+  @Prop({ required: true, type: Types.ObjectId, ref: 'User' })
   userId: Types.ObjectId;
 
   @Prop({ type: Number, required: true })
   amount: number;
 
-  @Prop({ type: String, required: true })
+  @Prop({ type: String, required: true, default: 'EGP' })
   currency: string;
 
-  @Prop({ type: String, required: true })
-  paymentMethod: string;
+  @Prop({ type: String, enum: PaymentMethodEnum, required: true })
+  paymentMethod: PaymentMethodEnum;
 
   @Prop({ type: String, required: true })
   provider: string;
 
-  @Prop({ type: String, required: true })
+  @Prop({ type: String, required: true, unique: true })
   transactionId: string;
 
-  @Prop({ type: String, required: true })
-  status: string;
+  @Prop({ type: String, enum: PaymentStatusEnum, default: PaymentStatusEnum.unpaid })
+  status: PaymentStatusEnum;
 
-  @Prop({ type: Date, required: true })
-  paidAt: Date;
+  @Prop({ type: Date, required: false })
+  paidAt?: Date;
 
+  @Prop({ type: Number, default: 0 })
+  refundedAmount?: number;
+
+  @Prop({ type: String, required: false })
+  refundReason?: string;
 }
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);

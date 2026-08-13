@@ -1,39 +1,31 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { TransactionStatusEnum, TransactionTypeEnum } from 'src/common/enums/walletEnum';
 import { WalletRepo } from 'src/common/reposetories/wallet-repo';
 import { WalletTransactionRepo } from 'src/common/reposetories/wallet-transaction-repo';
-import {
-  AdminDeductWalletDto,
-  CreateWalletDto,
-  DeductWalletDto,
-  DepositWalletDto,
-  GetTransactionsDto,
-  UserDeductWalletDto,
-} from './dto/wallet.dto';
+import { AdminDeductWalletDto, CreateWalletDto, DeductWalletDto, DepositWalletDto, GetTransactionsDto, UserDeductWalletDto, } from './dto/wallet.dto';
 import { WalletDocument } from './entities/wallet.entity';
+import { RoleEnum } from 'src/common/enums/userEnum';
+import type { UserDocument } from '../user/entities/user.entity';
+import { randomUUID } from 'crypto';
+import { AdminUserDocument } from '../user/entities/admin-user.entity';
+
 
 @Injectable()
 export class WalletService {
   constructor(
     private readonly walletRepo: WalletRepo,
     private readonly walletTransactionRepo: WalletTransactionRepo,
-  ) {}
+  ) { }
 
   private generateReceiptNumber(): string {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const randomHex = Math.floor(Math.random() * 0xffffff)
-      .toString(16)
-      .padStart(6, '0')
-      .toUpperCase();
-    return `TXN-${dateStr}-${randomHex}`;
+    const uuid = randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase();
+
+    return `TXN-${dateStr}-${uuid}`;
   }
 
-  async getOrCreateWallet(userId: string | Types.ObjectId): Promise<WalletDocument> {
+  async getOrCreateWallet(userId: string | Types.ObjectId){
     const userObjId = typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
     let wallet = await this.walletRepo.findOne({ filter: { userId: userObjId } });
 
@@ -46,24 +38,15 @@ export class WalletService {
     return wallet;
   }
 
-  async getMyWallet(userId: string) {
-    const wallet = await this.getOrCreateWallet(userId);
-    return {
-      message: 'Wallet retrieved successfully',
-      data: wallet,
-    };
-  }
 
   async getWalletByUserId(userId: string) {
     if (!Types.ObjectId.isValid(userId)) {
       throw new BadRequestException('Invalid user ID');
     }
     const wallet = await this.getOrCreateWallet(userId);
-    return {
-      message: 'User wallet retrieved successfully',
-      data: wallet,
-    };
+    return wallet;
   }
+
 
   async createWallet(dto: CreateWalletDto) {
     if (!Types.ObjectId.isValid(dto.userId)) {
@@ -80,26 +63,27 @@ export class WalletService {
       balance: 0,
     });
 
-    return {
-      message: 'Wallet created successfully',
-      data: wallet,
-    };
+    return wallet
   }
+
+
 
   async deposit(
     dto: DepositWalletDto,
     type: TransactionTypeEnum = TransactionTypeEnum.DEPOSIT,
+    user?: UserDocument,
   ) {
-    if (!Types.ObjectId.isValid(dto.userId)) {
-      throw new BadRequestException('Invalid user ID');
+    const { amount } = dto;
+    const targetUserId = user?._id || dto.userId;
+    if (!targetUserId) {
+      throw new BadRequestException('User ID is required for deposit');
     }
-
-    const wallet = await this.getOrCreateWallet(dto.userId);
+    const wallet = await this.getOrCreateWallet(targetUserId);
     const balanceBefore = wallet.balance;
 
     const updatedWallet = await this.walletRepo.findOneAndUpdate({
       filter: { _id: wallet._id },
-      update: { $inc: { balance: dto.amount } },
+      update: { $inc: { balance: amount } },
       options: { new: true },
     });
 
@@ -113,7 +97,7 @@ export class WalletService {
       userId: wallet.userId,
       type,
       status: TransactionStatusEnum.SUCCESS,
-      amount: dto.amount,
+      amount,
       balanceBefore,
       balanceAfter: updatedWallet.balance,
       receiptNumber,
@@ -121,21 +105,18 @@ export class WalletService {
       description: dto.description || 'Wallet deposit top-up',
     });
 
-    return {
-      message: 'Wallet deposit successful',
-      data: {
-        wallet: updatedWallet,
-        transaction,
-      },
-    };
+    return { updatedWallet, transaction }
+
   }
 
+  
   private async processDeduction(
     targetUserId: string | Types.ObjectId,
     amount: number,
     type: TransactionTypeEnum,
     description?: string,
     referenceId?: string,
+    deductBy?: Types.ObjectId
   ) {
     const userObjId =
       typeof targetUserId === 'string' ? new Types.ObjectId(targetUserId) : targetUserId;
@@ -176,29 +157,24 @@ export class WalletService {
       description: description || 'Wallet deduction',
     });
 
-    return {
-      wallet: updatedWallet,
-      transaction,
-    };
+    return { updatedWallet, transaction }
   }
 
-  async deductSelf(dto: UserDeductWalletDto, currentUser: any) {
-    const userId = currentUser._id || currentUser.id;
+
+  async deductSelf(dto: UserDeductWalletDto, user: UserDocument) {
+    const { amount } = dto;
     const result = await this.processDeduction(
-      userId,
-      dto.amount,
+      user._id,
+      amount,
       TransactionTypeEnum.DEDUCTION,
       dto.description || 'User wallet self-deduction',
       dto.referenceId,
     );
 
-    return {
-      message: 'Wallet deduction successful',
-      data: result,
-    };
+    return result;
   }
 
-  async deductAdmin(dto: AdminDeductWalletDto) {
+  async deductAdmin(dto: AdminDeductWalletDto, user: AdminUserDocument) {
     if (!Types.ObjectId.isValid(dto.userId)) {
       throw new BadRequestException('Invalid target user ID');
     }
@@ -209,34 +185,13 @@ export class WalletService {
       TransactionTypeEnum.DEDUCTION,
       dto.description,
       dto.referenceId,
+      user._id
     );
 
-    return {
-      message: 'Admin wallet deduction successful',
-      data: result,
-    };
+    return result;
   }
 
-  // Legacy fallback method for backwards compatibility
-  async deduct(dto: DeductWalletDto, currentUser: any) {
-    const targetUserId = dto.userId || currentUser._id || currentUser.id;
-    if (!Types.ObjectId.isValid(targetUserId)) {
-      throw new BadRequestException('Invalid target user ID');
-    }
-
-    const result = await this.processDeduction(
-      targetUserId,
-      dto.amount,
-      TransactionTypeEnum.DEDUCTION,
-      dto.description || 'Wallet deduction',
-      dto.referenceId,
-    );
-
-    return {
-      message: 'Wallet deduction successful',
-      data: result,
-    };
-  }
+ 
 
   async payForBooking(userId: string | Types.ObjectId, amount: number, bookingId: string) {
     return this.processDeduction(
@@ -248,7 +203,7 @@ export class WalletService {
     );
   }
 
-  async refundBooking(userId: string | Types.ObjectId, amount: number, bookingId: string) {
+  async refundBooking(userId: string | Types.ObjectId, amount: number, bookingId: string, user?: UserDocument) {
     return this.deposit(
       {
         userId: userId.toString(),
@@ -257,17 +212,17 @@ export class WalletService {
         referenceId: bookingId,
       },
       TransactionTypeEnum.BOOKING_REFUND,
+      user,
     );
   }
 
-  async getMyTransactions(userId: string, queryDto: GetTransactionsDto) {
-    return this.getTransactions({ ...queryDto, userId });
-  }
 
-  async getTransactions(queryDto: GetTransactionsDto) {
+  async getTransactions(queryDto: GetTransactionsDto, user: UserDocument) {
     const search: any = {};
 
-    if (queryDto.userId) {
+    if (user.role !== RoleEnum.admin && user.role !== RoleEnum.superAdmin) {
+      search.userId = new Types.ObjectId(user._id as any);
+    } else if (queryDto.userId) {
       if (!Types.ObjectId.isValid(queryDto.userId)) {
         throw new BadRequestException('Invalid user ID filter');
       }

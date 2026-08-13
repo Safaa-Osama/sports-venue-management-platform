@@ -5,10 +5,6 @@ export type WalletDocument = HydratedDocument<Wallet>;
 
 @Schema({
   timestamps: true,
-  strictQuery: true,
-  strict: true,
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true },
 })
 export class Wallet {
   @Prop({ type: Types.ObjectId, required: true, unique: true, index: true })

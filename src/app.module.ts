@@ -15,6 +15,8 @@ import { CouponModule } from './modules/coupon/coupon.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { RedisModule } from './common/services/redis/redisModule';
 
+import { AmenitiesModule } from './modules/amenities/amenities.module';
+
 @Module({
   imports: [
     // Config
@@ -45,6 +47,7 @@ import { RedisModule } from './common/services/redis/redisModule';
     PaymentModule,
     CouponModule,
     WalletModule,
+    AmenitiesModule,
     RedisModule,
   ],
 

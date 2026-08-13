@@ -4,10 +4,11 @@ import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
 import { OtpService } from 'src/common/services/otp/otp.service';
 import { S3Service } from 'src/common/services/s3Service/s3.service';
 import { TokenService } from 'src/common/services/token/tokenService';
-import { CreateAdminDto, CustomerSendOtpDto, CustomerVerifyOtpDto, DashboardLoginDto } from './dto/auth.dto';
-import { RoleEnum } from 'src/common/enums/userEnum';
+import { CreateAdminDto, CustomerSendOtpDto, CustomerVerifyOtpDto, DashboardLoginDto, GoogleLoginDto } from './dto/auth.dto';
+import { ProviderEnum, RoleEnum } from 'src/common/enums/userEnum';
 import { randomUUID } from 'crypto';
 import { compare, hash } from 'src/common/services/securityService/hash';
+import { OAuth2Client } from 'google-auth-library';
 
 
 @Injectable()
@@ -150,8 +151,7 @@ export class AuthService {
       },
     });
 
-   
-
+  
     return { user: admin, accessToken, refreshToken };
   }
 
@@ -179,5 +179,103 @@ export class AuthService {
     }
 
     return admin;
+  }
+
+
+
+  async signUpWithGoogle(body: GoogleLoginDto) {
+    const { idToken } = body;
+
+    const clientId = process.env.GOOGLE_CLIENT_ID || process.env.CLIENT_ID;
+    if (!clientId) {
+      throw new BadRequestException('Google Client ID is not configured on the server');
+    }
+
+    const client = new OAuth2Client(clientId);
+    let ticket: any;
+    try {
+      ticket = await client.verifyIdToken({
+        idToken,
+        audience: clientId,
+      });
+    } catch (error) {
+      throw new BadRequestException('Invalid or expired Google ID token');
+    }
+
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      throw new BadRequestException('Invalid Google token payload');
+    }
+
+    if (payload.email_verified === false) {
+      throw new BadRequestException('Google email is not verified');
+    }
+
+    const { email, name, picture } = payload;
+
+    let user = await this.customerUserRepo.findOne({ filter: { email } });
+
+    if (!user) {
+      const finalName = name || body.userName || `User-${email.split('@')[0]}`;
+      user = await this.customerUserRepo.create({
+        userName: finalName,
+        email,
+        emailConfirmed: payload.email_verified,
+        avatar: picture,
+        provider: ProviderEnum.google,
+        walletBalance: 0,
+      });
+
+      if (!user) {
+        throw new BadRequestException('Failed to create customer account');
+      }
+    } else {
+      if (user.provider === ProviderEnum.system) {
+        throw new BadRequestException('Provider mismatch: account exists with system credentials');
+      }
+      if (!user.provider) {
+        user =
+          (await this.customerUserRepo.findOneAndUpdate({
+            filter: { _id: user._id },
+            update: { provider: ProviderEnum.google, emailConfirmed: payload.email_verified },
+          })) || user;
+      }
+    }
+
+    const uuid = randomUUID();
+    const accessSecret = this.tokenService.getAccessSecret();
+    const refreshSecret = this.tokenService.getRefreshSecret();
+
+    const accessToken = await this.tokenService.generateToken({
+      payload: {
+        id: user._id,
+        email: user.email,
+        phone: user.phone,
+        userType: 'customer',
+        role: RoleEnum.customer,
+      },
+      options: {
+        secret: accessSecret,
+        expiresIn: '1d',
+        jwtid: uuid,
+      },
+    });
+
+    const refreshToken = await this.tokenService.generateToken({
+      payload: {
+        id: user._id,
+        email: user.email,
+        phone: user.phone,
+        userType: 'customer',
+        role: RoleEnum.customer,
+      },
+      options: {
+        secret: refreshSecret,
+        expiresIn: '7d',
+        jwtid: uuid,
+      },
+    });
+
+    return { user, accessToken, refreshToken };
   }
 }

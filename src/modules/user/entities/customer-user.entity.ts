@@ -14,8 +14,8 @@ export class CustomerUser {
   @Prop({ type: String, required: true })
   userName: string;
 
-  @Prop({ type: String, required: true, unique: true, index: true })
-  phone: string;
+  @Prop({ type: String, required: false, unique: true, sparse: true })
+  phone?: string;
 
   @Prop({ type: String })
   avatar?: string;
@@ -25,6 +25,15 @@ export class CustomerUser {
 
   @Prop({ type: Number, default: 0 })
   walletBalance: number;
+
+  @Prop({type : String , required : false})
+  provider?: string
+
+  @Prop({type : Boolean , required : false})
+  emailConfirmed?: boolean
+
+  @Prop({type : String , required : false})
+  email?: string
 }
 
 export const CustomerUserSchema = SchemaFactory.createForClass(CustomerUser);

@@ -1,6 +1,6 @@
 import { Body, Controller, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { CreateAdminDto, CustomerSendOtpDto, CustomerVerifyOtpDto, DashboardLoginDto } from './dto/auth.dto';
+import { CreateAdminDto, CustomerSendOtpDto, CustomerVerifyOtpDto, DashboardLoginDto, GoogleLoginDto } from './dto/auth.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { multer_cloud } from 'src/common/interceptor/multer';
 import { MulterEnum, StoreEnum } from 'src/common/enums/multerEnum';
@@ -34,6 +34,12 @@ export class AuthController {
     @UploadedFile() avatar?: Express.Multer.File,
   ) {
     return this.authService.verifyCustomerOtp(body, avatar);
+  }
+
+
+  @Post('signup-google')
+  signUpWithGoogle (@Body() body: GoogleLoginDto) {
+    return this.authService.signUpWithGoogle(body);
   }
 
   // --- DASHBOARD ADMIN/EMPLOYEE ENDPOINTS ---

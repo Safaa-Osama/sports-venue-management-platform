@@ -9,13 +9,13 @@ export class CreateWalletDto {
 }
 
 export class DepositWalletDto {
+  @IsOptional()
   @IsMongoId()
-  @IsNotEmpty()
-  userId: string;
+  userId?: string;
 
   @Type(() => Number)
   @IsNumber()
-  @Min(1, { message: 'Deposit amount must be at least 1' })
+  @Min(100, { message: 'Deposit amount must be at least 100' })
   amount: number;
 
   @IsOptional()
@@ -83,6 +83,10 @@ export class DeductWalletDto {
 
 export class GetTransactionsDto {
   @IsOptional()
+  @IsMongoId()
+  userId?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -106,8 +110,4 @@ export class GetTransactionsDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
-
-  @IsOptional()
-  @IsMongoId()
-  userId?: string;
 }

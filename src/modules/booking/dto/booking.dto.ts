@@ -26,12 +26,12 @@ export class CreateBookingDto {
   @IsString()
   couponCode?: string;
 
-  @IsOptional()
   @IsEnum(PaymentMethodEnum)
-  paymentMethod?: PaymentMethodEnum;
+  @IsNotEmpty()
+  paymentMethod: PaymentMethodEnum;
 }
 
-export class PayBookingDto {
+export class CreatePaymentDto {
   @IsEnum(PaymentMethodEnum)
   @IsNotEmpty()
   paymentMethod: PaymentMethodEnum;

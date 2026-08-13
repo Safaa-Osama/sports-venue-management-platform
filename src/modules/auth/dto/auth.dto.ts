@@ -1,5 +1,5 @@
 import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
-import { RoleEnum } from 'src/common/enums/userEnum';
+import { ProviderEnum, RoleEnum } from 'src/common/enums/userEnum';
 
 export class CustomerSendOtpDto {
   @IsString()
@@ -56,4 +56,24 @@ export class CreateAdminDto {
   @IsEnum(RoleEnum)
   @IsOptional()
   role?: RoleEnum;
+}
+
+
+export class GoogleLoginDto {
+  @IsString()
+  @IsNotEmpty()
+  idToken: string;
+
+  @IsString()
+  @IsOptional()
+  userName?: string;
+
+  @IsString()
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsString()
+  @IsOptional()
+  provider?: ProviderEnum.google;
 }

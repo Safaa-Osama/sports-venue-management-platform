@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException, } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Types } from 'mongoose';
 import * as QRCode from 'qrcode';
 import { BookingStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
 import { CouponEnum } from 'src/common/enums/couponEnum';
@@ -7,22 +8,20 @@ import { RoleEnum } from 'src/common/enums/userEnum';
 import { BookingRepo } from 'src/common/reposetories/booking-repo';
 import { CouponRepo } from 'src/common/reposetories/coupon-repo';
 import { VenueRepo } from 'src/common/reposetories/venue-repo';
-import { WalletRepo } from 'src/common/reposetories/wallet-repo';
-import { WalletService } from '../wallet/wallet.service';
 import { UserDocument } from '../user/entities/user.entity';
+import { WalletService } from '../wallet/wallet.service';
 import { BookingGateway } from './booking.gateway';
-import { CreateBookingDto, PayBookingDto, QueryBookingDto, UpdateBookingStatusDto, } from './dto/booking.dto';
-import { Types } from 'mongoose';
+import { CreateBookingDto, CreatePaymentDto, QueryBookingDto, UpdateBookingStatusDto, } from './dto/booking.dto';
 
 const HOLD_DURATION_MINUTES = 15;
 const CANCELLATION_DEADLINE_HOURS = 24;
+
 
 @Injectable()
 export class BookingService {
   constructor(
     private readonly bookingRepo: BookingRepo,
     private readonly venueRepo: VenueRepo,
-    private readonly walletRepo: WalletRepo,
     private readonly walletService: WalletService,
     private readonly couponRepo: CouponRepo,
     private readonly bookingGateway: BookingGateway,
@@ -98,7 +97,7 @@ export class BookingService {
     if (venue.customHourPrices && venue.customHourPrices.length > 0) {
       for (let hour = startTime; hour < endTime; hour++) {
         const customPrice = venue.customHourPrices.find((c) => c.hour === hour);
-        if (customPrice && customPrice.pricePerHour > 0) {
+        if (customPrice && typeof customPrice.pricePerHour === 'number' && customPrice.pricePerHour >= 0) {
           totalPrice += customPrice.pricePerHour;
         } else {
           totalPrice += venue.defaultHourPrice;
@@ -181,16 +180,24 @@ export class BookingService {
     if (venue.createdBy) {
       this.bookingGateway.emitOwnerNotification(venue.createdBy.toString(), booking, 'NEW_PENDING_BOOKING');
     }
-    if (paymentMethod === PaymentMethodEnum.wallet) {
-      return await this.payBooking(booking._id.toString(), { paymentMethod: PaymentMethodEnum.wallet }, user);
-    }
 
-    return booking;
+    const paymentResult = await this.payBooking(
+      booking._id.toString(),
+      { paymentMethod, couponCode },
+      user,
+    );
+
+    const latestBooking = await this.bookingRepo.findById(booking._id);
+
+    return {
+      booking: latestBooking || booking,
+      payment: paymentResult,
+    };
   }
 
 
-  async payBooking(bookingId: string, body: PayBookingDto, user: UserDocument) {
-    const { paymentMethod,couponCode } = body;
+  async payBooking(bookingId: string, body: CreatePaymentDto, user: UserDocument) {
+    const { paymentMethod, couponCode } = body;
 
 
     const booking = await this.bookingRepo.findById(bookingId);
@@ -221,6 +228,7 @@ export class BookingService {
     }
 
     const amountToPay = booking.finalPrice ?? booking.totalPrice;
+    const activeCouponCode = couponCode || booking.couponCode;
 
     if (paymentMethod === PaymentMethodEnum.wallet) {
       await this.walletService.payForBooking(user._id, amountToPay, booking._id.toString());
@@ -235,8 +243,8 @@ export class BookingService {
         },
       });
 
-      if (couponCode) {
-        const coupon = await this.couponRepo.findOne({ filter: { code: couponCode } });
+      if (activeCouponCode) {
+        const coupon = await this.couponRepo.findOne({ filter: { code: activeCouponCode.toLowerCase() } });
         if (coupon) {
           coupon.usesCount += 1;
           await coupon.save();
@@ -258,6 +266,14 @@ export class BookingService {
         },
       });
 
+      if (activeCouponCode) {
+        const coupon = await this.couponRepo.findOne({ filter: { code: activeCouponCode.toLowerCase() } });
+        if (coupon) {
+          coupon.usesCount += 1;
+          await coupon.save();
+        }
+      }
+
       this.bookingGateway.emitBookingConfirmed(updatedBooking);
       return updatedBooking;
     }
@@ -275,7 +291,7 @@ export class BookingService {
     throw new BadRequestException('Unsupported payment method');
   }
 
-// ai not me (all get apis)
+  // ai not me (all get apis)
   async getMyBookings(user: UserDocument, query: QueryBookingDto) {
     const { page, limit, status, paymentStatus, date } = query;
     const search: Types.ObjectId | any = { userId: user._id };

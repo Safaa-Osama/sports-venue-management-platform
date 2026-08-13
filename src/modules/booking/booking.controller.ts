@@ -4,7 +4,7 @@ import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { BookingService } from './booking.service';
 import {
-  CreateBookingDto, PayBookingDto, QueryBookingDto, UpdateBookingStatusDto,
+  CreateBookingDto, CreatePaymentDto, QueryBookingDto, UpdateBookingStatusDto,
 } from './dto/booking.dto';
 import type { UserDocument } from '../user/entities/user.entity';
 
@@ -25,7 +25,7 @@ export class BookingController {
   @auth({})
   async payBooking(
     @Param('bookingId') bookingId: string,
-    @Body() body: PayBookingDto,
+    @Body() body: CreatePaymentDto,
     @User() user: UserDocument,
   ) {
     return await this.bookingService.payBooking(bookingId, body, user);

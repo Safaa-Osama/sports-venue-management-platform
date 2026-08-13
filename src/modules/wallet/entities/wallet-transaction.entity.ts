@@ -1,6 +1,8 @@
 import { MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { TransactionStatusEnum, TransactionTypeEnum } from 'src/common/enums/walletEnum';
+import { Wallet } from './wallet.entity';
+import { User } from 'src/modules/user/entities/user.entity';
 
 export type WalletTransactionDocument = HydratedDocument<WalletTransaction>;
 
@@ -12,16 +14,16 @@ export type WalletTransactionDocument = HydratedDocument<WalletTransaction>;
   toObject: { virtuals: true },
 })
 export class WalletTransaction {
-  @Prop({ type: Types.ObjectId, ref: 'Wallet', required: true, index: true })
+  @Prop({ type: Types.ObjectId, ref: Wallet.name, required: true })
   walletId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: Types.ObjectId, ref: User.name, required: true })
   userId: Types.ObjectId;
 
-  @Prop({ type: String, enum: TransactionTypeEnum, required: true, index: true })
+  @Prop({ type: String, enum: TransactionTypeEnum, required: true })
   type: TransactionTypeEnum;
 
-  @Prop({ type: String, enum: TransactionStatusEnum, default: TransactionStatusEnum.SUCCESS, index: true })
+  @Prop({ type: String, enum: TransactionStatusEnum, default: TransactionStatusEnum.SUCCESS })
   status: TransactionStatusEnum;
 
   @Prop({ type: Number, required: true })
@@ -33,7 +35,7 @@ export class WalletTransaction {
   @Prop({ type: Number, required: true })
   balanceAfter: number;
 
-  @Prop({ type: String, unique: true, required: true, index: true })
+  @Prop({ type: String, unique: true, required: true })
   receiptNumber: string;
 
   @Prop({ type: String })

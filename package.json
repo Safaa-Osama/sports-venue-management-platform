@@ -42,6 +42,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "crypto-js": "^4.2.0",
+    "google-auth-library": "^11.0.1",
     "helmet": "^8.3.0",
     "mongoose": "^9.9.1",
     "multer": "^2.2.0",
@@ -93,6 +94,9 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/$1"
+    }
   }
 }
