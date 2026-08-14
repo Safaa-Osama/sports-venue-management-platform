@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, } from '@nestjs/common';
 import { auth } from 'src/common/decorator/auth.decorator';
 import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
@@ -7,6 +7,7 @@ import {
   CreateBookingDto, CreatePaymentDto, QueryBookingDto, UpdateBookingStatusDto,
 } from './dto/booking.dto';
 import type { UserDocument } from '../user/entities/user.entity';
+
 
 @Controller('booking')
 export class BookingController {
@@ -17,8 +18,10 @@ export class BookingController {
   async createBooking(
     @Body() body: CreateBookingDto,
     @User() user: UserDocument,
+    @Headers('idempotency-key') idempotencyHeader?: string,
   ) {
-    return await this.bookingService.createBooking(body, user);
+    const effectiveIdempotencyKey = idempotencyHeader || body.idempotencyKey;
+    return await this.bookingService.createBooking(body, user, effectiveIdempotencyKey);
   }
 
   @Post(':bookingId/pay')

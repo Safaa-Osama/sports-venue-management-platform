@@ -1,17 +1,20 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException, } from '@nestjs/common';
+import { InjectConnection } from '@nestjs/mongoose';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Types } from 'mongoose';
+import { ClientSession, Connection, Types } from 'mongoose';
 import * as QRCode from 'qrcode';
 import { BookingStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
-import { CouponEnum } from 'src/common/enums/couponEnum';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { BookingRepo } from 'src/common/reposetories/booking-repo';
 import { CouponRepo } from 'src/common/reposetories/coupon-repo';
 import { VenueRepo } from 'src/common/reposetories/venue-repo';
+import RedisService from 'src/common/services/redis/redis.service';
+import { calculateCouponDiscount } from '../coupon/utils/coupon-calculator.utils';
 import { UserDocument } from '../user/entities/user.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { BookingGateway } from './booking.gateway';
 import { CreateBookingDto, CreatePaymentDto, QueryBookingDto, UpdateBookingStatusDto, } from './dto/booking.dto';
+import * as crypto from 'crypto';
 
 const HOLD_DURATION_MINUTES = 15;
 const CANCELLATION_DEADLINE_HOURS = 24;
@@ -25,7 +28,21 @@ export class BookingService {
     private readonly walletService: WalletService,
     private readonly couponRepo: CouponRepo,
     private readonly bookingGateway: BookingGateway,
+    private readonly redisService: RedisService,
+    @InjectConnection() private readonly connection: Connection,
   ) { }
+
+  private computeRequestFingerprint(body: CreateBookingDto): string {
+    const canonical = {
+      venueId: body.venueId.toString(),
+      date: new Date(body.date).toISOString().split('T')[0],
+      startTime: Number(body.startTime),
+      endTime: Number(body.endTime),
+      couponCode: body.couponCode ? body.couponCode.trim().toUpperCase() : null,
+      paymentMethod: body.paymentMethod,
+    };
+    return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+  }
 
   @Cron(CronExpression.EVERY_HOUR)
   async cleanExpiredBookings() {
@@ -50,151 +67,330 @@ export class BookingService {
   }
 
 
-  async createBooking(body: CreateBookingDto, user: UserDocument) {
+  async createBooking(body: CreateBookingDto, user: UserDocument, idempotencyKey?: string) {
     const { venueId, date, startTime, endTime, couponCode, paymentMethod } = body;
+    const requestHash = this.computeRequestFingerprint(body);
+    const trimmedIdemKey = idempotencyKey ? idempotencyKey.trim() : undefined;
 
-    const venue = await this.venueRepo.findById(venueId);
-    if (!venue) {
-      throw new NotFoundException('Venue not found');
-    }
+    const effectiveIdemKey = trimmedIdemKey ? `idem::req::${user._id.toString()}::${trimmedIdemKey}` : undefined;
+    const idemLockKey = trimmedIdemKey ? `idem::lock::${user._id.toString()}::${trimmedIdemKey}` : undefined;
 
-    if (!venue.isActive) {
-      throw new BadRequestException('Venue is currently inactive');
-    }
+    if (effectiveIdemKey) {
+      const cached = await this.redisService.getValue(effectiveIdemKey);
+      console.log(cached);
 
-    if (startTime < venue.startWorkingHours || endTime > venue.endWorkingHours) {
-      throw new BadRequestException(
-        `Booking hours must be between venue operating hours (${venue.startWorkingHours}:00 - ${venue.endWorkingHours}:00)`,
-      );
-    }
-
-    const now = new Date();
-    const existingBookings = await this.bookingRepo.find({
-      filter: {
-        venueId: venue._id,
-        date: new Date(date),
-        status: { $in: [BookingStatusEnum.confirmed, BookingStatusEnum.pending] },
-        $or: [
-          { startTime: { $lt: endTime }, endTime: { $gt: startTime } },
-        ],
-      },
-    });
-
-    const validOverlaps = existingBookings.filter((b) => {
-      if (b.status === BookingStatusEnum.pending && b.expiresAt && new Date(b.expiresAt) <= now) {
-        return false;
-      }
-      return true;
-    });
-
-    if (validOverlaps.length > 0) {
-      throw new ConflictException('Selected time slot is already booked or reserved for this venue');
-    }
-
-    let totalPrice = 0;
-    const durationHours = endTime - startTime;
-
-    if (venue.customHourPrices && venue.customHourPrices.length > 0) {
-      for (let hour = startTime; hour < endTime; hour++) {
-        const customPrice = venue.customHourPrices.find((c) => c.hour === hour);
-        if (customPrice && typeof customPrice.pricePerHour === 'number' && customPrice.pricePerHour >= 0) {
-          totalPrice += customPrice.pricePerHour;
-        } else {
-          totalPrice += venue.defaultHourPrice;
+      if (cached) {
+        if (typeof cached === 'object' && 'requestHash' in cached) {
+          if (cached.requestHash && cached.requestHash !== requestHash) {
+            throw new ConflictException(
+              'Idempotency key mismatch: cannot reuse the same key with a different request payload',
+            );
+          }
+          return cached.responseData || cached;
         }
+        return cached;
       }
-    } else {
-      totalPrice = venue.defaultHourPrice * durationHours;
     }
-
-    let discountAmount = 0;
-    let finalPrice = totalPrice;
-
-    if (couponCode) {
-      const coupon = await this.couponRepo.findOne({
-        filter: { code: couponCode.toLowerCase() },
+    if (trimmedIdemKey) {
+      const existingIdemBooking = await this.bookingRepo.findOne({
+        filter: {
+          userId: user._id,
+          idempotencyKey: trimmedIdemKey,
+        },
       });
 
-      if (!coupon) {
-        throw new NotFoundException('Invalid coupon code');
-      }
+      if (existingIdemBooking) {
+        if (existingIdemBooking.requestHash && existingIdemBooking.requestHash !== requestHash) {
+          throw new ConflictException(
+            'Idempotency key mismatch: cannot reuse the same key with a different request payload',
+          );
+        }
 
-      if (!coupon.isActive) {
-        throw new BadRequestException('Coupon is inactive');
-      }
+        const reconstructedResponse = {
+          booking: existingIdemBooking,
+          payment: {
+            status: existingIdemBooking.paymentStatus,
+            paymentMethod: existingIdemBooking.paymentMethod,
+            amount: existingIdemBooking.finalPrice ?? existingIdemBooking.totalPrice,
+          },
+        };
 
-      if (coupon.usesCount >= coupon.maxUses) {
-        throw new BadRequestException('Coupon maximum usage limit reached');
-      }
+        if (effectiveIdemKey) {
+          await this.redisService.setValue({
+            key: effectiveIdemKey,
+            value: { requestHash, responseData: reconstructedResponse },
+            ttl: 86400,
+          });
+        }
 
-      if (now < new Date(coupon.startDate) || now > new Date(coupon.endDate)) {
-        throw new BadRequestException('Coupon is expired or not valid yet');
+        return reconstructedResponse;
       }
-
-      if (coupon.discountType === CouponEnum.percentage) {
-        discountAmount = (totalPrice * coupon.discount) / 100;
-      } else {
-        discountAmount = coupon.discount;
-      }
-
-      discountAmount = Math.min(discountAmount, totalPrice);
-      finalPrice = Math.max(0, totalPrice - discountAmount);
     }
-    const expiresAt = new Date(Date.now() + HOLD_DURATION_MINUTES * 60 * 1000);
+    let idemLockAcquired = false;
+    if (idemLockKey) {
+      for (let attempt = 0; attempt < 25; attempt++) {
+        idemLockAcquired = await this.redisService.acquireLock(idemLockKey, 10);
+        if (idemLockAcquired) break;
 
-    const bookingCode = `BK-${Date.now().toString(36).toUpperCase()}-${Math.random()
-      .toString(36)
-      .substring(2, 6)
-      .toUpperCase()}`;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (effectiveIdemKey) {
+          const cached = await this.redisService.getValue(effectiveIdemKey);
+          if (cached) {
+            if (typeof cached === 'object' && 'requestHash' in cached) {
+              if (cached.requestHash && cached.requestHash !== requestHash) {
+                throw new ConflictException(
+                  'Idempotency key mismatch: cannot reuse the same key with a different request payload',
+                );
+              }
+              return cached.responseData || cached;
+            }
+            return cached;
+          }
+        }
+      }
 
-    const qrPayload = JSON.stringify({
-      bookingCode,
-      venueId: venue._id,
-      userId: user._id,
-      date,
-      startTime,
-      endTime,
-    });
-
-    const qrCode = await QRCode.toDataURL(qrPayload);
-
-    const booking = await this.bookingRepo.create({
-      userId: user._id,
-      venueId: venue._id,
-      date: new Date(date),
-      startTime,
-      endTime,
-      totalPrice,
-      discountAmount: Number(discountAmount.toFixed(2)),
-      finalPrice: Number(finalPrice.toFixed(2)),
-      couponCode: couponCode ? couponCode.toLowerCase() : undefined,
-      status: BookingStatusEnum.pending,
-      paymentStatus: PaymentStatusEnum.unpaid,
-      paymentMethod,
-      expiresAt,
-      bookingCode,
-      qrCode,
-    });
-
-    this.bookingGateway.emitSlotLocked(booking);
-    if (venue.createdBy) {
-      this.bookingGateway.emitOwnerNotification(venue.createdBy.toString(), booking, 'NEW_PENDING_BOOKING');
+      if (!idemLockAcquired) {
+        throw new ConflictException(
+          'A concurrent request with this idempotency key is currently processing. Please retry shortly.',
+        );
+      }
     }
 
-    const paymentResult = await this.payBooking(
-      booking._id.toString(),
-      { paymentMethod, couponCode },
-      user,
-    );
+    try {
+      const venue = await this.venueRepo.findById(venueId);
+      if (!venue) {
+        throw new NotFoundException('Venue not found');
+      }
 
-    const latestBooking = await this.bookingRepo.findById(booking._id);
+      if (!venue.isActive) {
+        throw new BadRequestException('Venue is currently inactive');
+      }
 
-    return {
-      booking: latestBooking || booking,
-      payment: paymentResult,
-    };
+      if (startTime < venue.startWorkingHours || endTime > venue.endWorkingHours) {
+        throw new BadRequestException(
+          `Booking hours must be between venue operating hours (${venue.startWorkingHours}:00 - ${venue.endWorkingHours}:00)`,
+        );
+      }
+
+      const bookingDate = new Date(date);
+      const startOfDay = new Date(bookingDate);
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const endOfDay = new Date(bookingDate);
+      endOfDay.setUTCHours(23, 59, 59, 999);
+
+      const now = new Date();
+      const slotStartDateTime = new Date(startOfDay);
+      slotStartDateTime.setUTCHours(startTime, 0, 0, 0);
+
+      if (slotStartDateTime.getTime() <= now.getTime()) {
+        throw new BadRequestException('Cannot book a time slot in the past');
+      }
+
+      const lockKey = `lock::booking::venue::${venue._id.toString()}::${startOfDay.toISOString()}`;
+      let lockAcquired = false;
+      for (let i = 0; i < 10; i++) {
+        lockAcquired = await this.redisService.acquireLock(lockKey, 5);
+        if (lockAcquired) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      try {
+        const existingBookings = await this.bookingRepo.find({
+          filter: {
+            venueId: venue._id,
+            date: { $gte: startOfDay, $lte: endOfDay },
+            status: { $in: [BookingStatusEnum.confirmed, BookingStatusEnum.pending] },
+            $or: [
+              { startTime: { $lt: endTime }, endTime: { $gt: startTime } },
+            ],
+          },
+        });
+
+        const validOverlaps = existingBookings.filter((b) => {
+          if (b.status === BookingStatusEnum.pending && b.expiresAt && new Date(b.expiresAt) <= now) {
+            return false;
+          }
+          return true;
+        });
+
+        if (validOverlaps.length > 0) {
+          throw new ConflictException('Selected time slot is already booked or reserved for this venue');
+        }
+
+        let totalPrice = 0;
+        const durationHours = endTime - startTime;
+
+        if (venue.customHourPrices && venue.customHourPrices.length > 0) {
+          for (let hour = startTime; hour < endTime; hour++) {
+            const customPrice = venue.customHourPrices.find((c) => c.hour === hour);
+            if (customPrice && typeof customPrice.pricePerHour === 'number' && customPrice.pricePerHour >= 0) {
+              totalPrice += customPrice.pricePerHour;
+            } else {
+              totalPrice += venue.defaultHourPrice;
+            }
+          }
+        } else {
+          totalPrice = venue.defaultHourPrice * durationHours;
+        }
+
+        let discountAmount = 0;
+        let finalPrice = totalPrice;
+        const normalizedCouponCode = couponCode ? couponCode.trim().toUpperCase() : undefined;
+
+        if (normalizedCouponCode) {
+          const coupon = await this.couponRepo.findOne({
+            filter: { code: normalizedCouponCode },
+          });
+
+          if (!coupon) {
+            throw new NotFoundException('Invalid coupon code');
+          }
+
+          if (!coupon.isActive) {
+            throw new BadRequestException('Coupon is inactive');
+          }
+
+          if (coupon.usesCount >= coupon.maxUses) {
+            throw new BadRequestException('Coupon maximum usage limit reached');
+          }
+
+          if (now < new Date(coupon.startDate) || now > new Date(coupon.endDate)) {
+            throw new BadRequestException('Coupon is expired or not valid yet');
+          }
+
+          const discountResult = calculateCouponDiscount(coupon.discountType, coupon.discount, totalPrice);
+          discountAmount = discountResult.discountAmount;
+          finalPrice = discountResult.finalPrice;
+        }
+
+        if (paymentMethod === PaymentMethodEnum.wallet) {
+          const wallet = await this.walletService.getOrCreateWallet(user._id);
+          if (wallet.balance < finalPrice) {
+            throw new BadRequestException(
+              `Insufficient wallet balance. Required: ${finalPrice}, Available: ${wallet.balance}`,
+            );
+          }
+        }
+
+        const expiresAt = new Date(Date.now() + HOLD_DURATION_MINUTES * 60 * 1000);
+
+        const bookingCode = `BK-${Date.now().toString(36).toUpperCase()}-${Math.random()
+          .toString(36)
+          .substring(2, 6)
+          .toUpperCase()}`;
+
+        const qrPayload = JSON.stringify({
+          bookingCode,
+          venueId: venue._id,
+          userId: user._id,
+          date: startOfDay.toISOString().split('T')[0],
+          startTime,
+          endTime,
+        });
+
+        const qrCode = await QRCode.toDataURL(qrPayload);
+
+        const booking = await this.bookingRepo.create({
+          userId: user._id,
+          venueId: venue._id,
+          date: startOfDay,
+          startTime,
+          endTime,
+          totalPrice: Number(totalPrice.toFixed(2)),
+          discountAmount: Number(discountAmount.toFixed(2)),
+          finalPrice: Number(finalPrice.toFixed(2)),
+          couponCode: normalizedCouponCode,
+          status: BookingStatusEnum.pending,
+          paymentStatus: PaymentStatusEnum.unpaid,
+          paymentMethod,
+          expiresAt,
+          bookingCode,
+          qrCode,
+          idempotencyKey: trimmedIdemKey,
+          requestHash,
+        });
+
+        this.bookingGateway.emitSlotLocked(booking);
+        if (venue.createdBy) {
+          this.bookingGateway.emitOwnerNotification(venue.createdBy.toString(), booking, 'NEW_PENDING_BOOKING');
+        }
+
+        let paymentResult: any;
+        try {
+          paymentResult = await this.payBooking(
+            booking._id.toString(),
+            { paymentMethod, couponCode: normalizedCouponCode },
+            user,
+          );
+        } catch (payError) {
+          await this.bookingRepo.findByIdAndDelete(booking._id);
+          this.bookingGateway.emitSlotReleased(booking);
+          throw payError;
+        }
+
+        const latestBooking = await this.bookingRepo.findById(booking._id);
+        const responseData = {
+          booking: latestBooking || booking,
+          payment: paymentResult,
+        };
+
+        // Store in Redis with 24-hour TTL for idempotency replay
+        if (effectiveIdemKey) {
+          try {
+            await this.redisService.setValue({
+              key: effectiveIdemKey,
+              value: { requestHash, responseData },
+              ttl: 86400,
+            });
+          } catch {
+            // Non-critical cache write failure will be recovered from DB on retry
+          }
+        }
+
+        return responseData;
+      } finally {
+        if (lockAcquired) {
+          await this.redisService.releaseLock(lockKey);
+        }
+      }
+    } finally {
+      if (idemLockAcquired && idemLockKey) {
+        await this.redisService.releaseLock(idemLockKey);
+      }
+    }
   }
 
+
+  private async payForBookingCompensating(user: UserDocument, amountToPay: number, booking: any, activeCouponCode?: string,) {
+    await this.walletService.payForBooking(user._id, amountToPay, booking._id.toString());
+
+    let updatedBooking: any;
+    try {
+      updatedBooking = await this.bookingRepo.findByIdAndUpdate({
+        id: booking._id,
+        update: {
+          status: BookingStatusEnum.confirmed,
+          paymentStatus: PaymentStatusEnum.paid,
+          paymentMethod: PaymentMethodEnum.wallet,
+          expiresAt: null,
+        },
+      });
+
+      if (activeCouponCode) {
+        const coupon = await this.couponRepo.findOne({ filter: { code: activeCouponCode } });
+        if (coupon) {
+          coupon.usesCount += 1;
+          await coupon.save();
+        }
+      }
+    } catch (confirmError) {
+      await this.walletService.refundBooking(user._id, amountToPay, booking._id.toString());
+      throw confirmError;
+    }
+
+    this.bookingGateway.emitBookingConfirmed(updatedBooking!);
+    return updatedBooking;
+  }
 
   async payBooking(bookingId: string, body: CreatePaymentDto, user: UserDocument) {
     const { paymentMethod, couponCode } = body;
@@ -228,33 +424,72 @@ export class BookingService {
     }
 
     const amountToPay = booking.finalPrice ?? booking.totalPrice;
-    const activeCouponCode = couponCode || booking.couponCode;
+    const activeCouponCode = couponCode ? couponCode.trim().toUpperCase() : (booking.couponCode ? booking.couponCode.trim().toUpperCase() : undefined);
 
     if (paymentMethod === PaymentMethodEnum.wallet) {
-      await this.walletService.payForBooking(user._id, amountToPay, booking._id.toString());
-
-      const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
-        id: booking._id,
-        update: {
-          status: BookingStatusEnum.confirmed,
-          paymentStatus: PaymentStatusEnum.paid,
-          paymentMethod: PaymentMethodEnum.wallet,
-          expiresAt: null,
-        },
-      });
-
-      if (activeCouponCode) {
-        const coupon = await this.couponRepo.findOne({ filter: { code: activeCouponCode.toLowerCase() } });
-        if (coupon) {
-          coupon.usesCount += 1;
-          await coupon.save();
-        }
+      let session: ClientSession | null = null;
+      try {
+        session = await this.connection.startSession();
+        session.startTransaction();
+      } catch {
+        session = null;
       }
 
-      this.bookingGateway.emitBookingConfirmed(updatedBooking);
-      return updatedBooking;
-    }
+      if (session) {
+        try {
+          await this.walletService.payForBooking(user._id, amountToPay, booking._id.toString(), session);
 
+          const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
+            id: booking._id,
+            update: {
+              status: BookingStatusEnum.confirmed,
+              paymentStatus: PaymentStatusEnum.paid,
+              paymentMethod: PaymentMethodEnum.wallet,
+              expiresAt: null,
+            },
+            options: { session },
+          });
+
+          if (activeCouponCode) {
+            await this.couponRepo.findOneAndUpdate({
+              filter: { code: activeCouponCode },
+              update: { $inc: { usesCount: 1 } },
+              options: { session },
+            });
+          }
+          await session.commitTransaction();
+
+          this.bookingGateway.emitBookingConfirmed(updatedBooking!);
+          return updatedBooking;
+        } catch (txnError: any) {
+          try {
+            await session.abortTransaction();
+            await session.endSession();
+          } catch {}
+
+          const isReplicaSetError =
+            txnError?.code === 20 ||
+            txnError?.errorResponse?.code === 20 ||
+            txnError?.message?.includes('replica set') ||
+            txnError?.message?.includes('Transaction numbers');
+
+          if (isReplicaSetError) {
+            return await this.payForBookingCompensating(user, amountToPay, booking, activeCouponCode);
+          }
+          throw txnError;
+        } finally {
+          try {
+            if (session?.inTransaction()) {
+              await session.abortTransaction();
+            }
+            await session.endSession();
+          } catch {}
+        }
+      } else {
+        return await this.payForBookingCompensating(user, amountToPay, booking, activeCouponCode);
+      }
+    }
+ 
     if (paymentMethod === PaymentMethodEnum.cash) {
       const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
         id: booking._id,
@@ -267,7 +502,7 @@ export class BookingService {
       });
 
       if (activeCouponCode) {
-        const coupon = await this.couponRepo.findOne({ filter: { code: activeCouponCode.toLowerCase() } });
+        const coupon = await this.couponRepo.findOne({ filter: { code: activeCouponCode } });
         if (coupon) {
           coupon.usesCount += 1;
           await coupon.save();
@@ -284,17 +519,16 @@ export class BookingService {
         bookingId: booking._id,
         amountToPay,
         currency: 'EGP',
-        status: booking.status,
+        status: BookingStatusEnum.pending,
       };
     }
 
     throw new BadRequestException('Unsupported payment method');
   }
 
-  // ai not me (all get apis)
   async getMyBookings(user: UserDocument, query: QueryBookingDto) {
     const { page, limit, status, paymentStatus, date } = query;
-    const search: Types.ObjectId | any = { userId: user._id };
+    let search: Types.ObjectId | any = { userId: user._id } ;
 
     if (status) {
       search.status = status;
@@ -353,7 +587,7 @@ export class BookingService {
     });
   }
 
-  async getBookingById(id: string, user: any) {
+  async getBookingById(id: string, user: UserDocument) {
     const booking = await this.bookingRepo.findOne({
       filter: { _id: id },
       options: {
@@ -403,7 +637,6 @@ export class BookingService {
       throw new BadRequestException('Completed bookings cannot be cancelled');
     }
 
-    // Cancellation window check (24 hours before slot start)
     const bookingDateTime = new Date(booking.date);
     bookingDateTime.setHours(booking.startTime, 0, 0, 0);
     const now = new Date();
@@ -413,21 +646,39 @@ export class BookingService {
       throw new BadRequestException(`Bookings can only be cancelled at least ${CANCELLATION_DEADLINE_HOURS} hours prior to slot time.`);
     }
 
-    const updateData: any = { status: BookingStatusEnum.cancelled, expiresAt: null };
-
-    // Process wallet refund if paid via wallet
     if (booking.paymentStatus === PaymentStatusEnum.paid && booking.paymentMethod === PaymentMethodEnum.wallet) {
       const refundAmount = booking.finalPrice ?? booking.totalPrice;
-      await this.walletService.refundBooking(booking.userId, refundAmount, booking._id.toString());
-      updateData.paymentStatus = PaymentStatusEnum.refunded;
+      const session = await this.connection.startSession();
+      session.startTransaction();
+
+      try {
+        await this.walletService.refundBooking(booking.userId, refundAmount, booking._id.toString(), undefined, session);
+
+        const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
+          id: booking._id,
+          update: {
+            status: BookingStatusEnum.cancelled,
+            paymentStatus: PaymentStatusEnum.refunded,
+            expiresAt: null,
+          },
+          options: { session },
+        });
+
+        await session.commitTransaction();
+        this.bookingGateway.emitSlotReleased(updatedBooking!);
+        return updatedBooking;
+      } catch (refundError) {
+        await session.abortTransaction();
+        throw refundError;
+      } finally {
+        await session.endSession();
+      }
     }
 
     const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
       id: booking._id,
-      update: updateData,
+      update: { status: BookingStatusEnum.cancelled, expiresAt: null },
     });
-
-    // Real-time broadcast: Slot released
     this.bookingGateway.emitSlotReleased(updatedBooking);
 
     return updatedBooking;

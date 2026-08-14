@@ -59,9 +59,7 @@ export class PaymentService {
         bookingId: booking._id,
         userId: user._id,
         amount: paymentAmount,
-        currency: 'EGP',
         paymentMethod: PaymentMethodEnum.wallet,
-        provider: 'wallet',
         transactionId,
         status: PaymentStatusEnum.paid,
         paidAt: new Date(),
@@ -83,15 +81,12 @@ export class PaymentService {
       };
     }
 
-    // B. CASH / PAY AT VENUE METHOD
     if (paymentMethod === PaymentMethodEnum.cash) {
       const payment = await this.paymentRepo.create({
         bookingId: booking._id,
         userId: user._id,
         amount: paymentAmount,
-        currency: 'EGP',
         paymentMethod: PaymentMethodEnum.cash,
-        provider: 'cash_at_venue',
         transactionId,
         status: PaymentStatusEnum.pay_at_venue,
       });
@@ -111,15 +106,12 @@ export class PaymentService {
       };
     }
 
-    // C. PAYMOB / ONLINE GATEWAY METHOD
     if (paymentMethod === PaymentMethodEnum.paymob) {
       const payment = await this.paymentRepo.create({
         bookingId: booking._id,
         userId: user._id,
         amount: paymentAmount,
-        currency: 'EGP',
         paymentMethod: PaymentMethodEnum.paymob,
-        provider: 'paymob',
         transactionId,
         status: PaymentStatusEnum.unpaid,
       });
@@ -218,7 +210,6 @@ export class PaymentService {
   }
 
 
-  // 4. READ (SINGLE PAYMENT BY ID)
   async getPaymentById(id: string, user: UserDocument) {
     const payment = await this.paymentRepo.findOne({
       filter: { _id: id },
@@ -251,7 +242,6 @@ export class PaymentService {
   }
 
 
-  // 5. UPDATE (MARK CASH PAID AT VENUE)
   async markCashPaid(id: string, body: MarkCashPaidDto, user: UserDocument) {
     const payment = await this.paymentRepo.findById(id);
     if (!payment) {
@@ -286,7 +276,6 @@ export class PaymentService {
   }
 
 
-  // 6. REFUND PAYMENT (FINANCIAL REVERSAL)
   async refundPayment(id: string, body: RefundPaymentDto, user: UserDocument) {
     const payment = await this.paymentRepo.findById(id);
     if (!payment) {
@@ -336,8 +325,6 @@ export class PaymentService {
     };
   }
   
-
-  // 7. PAYMOB WEBHOOK LISTENER WITH HMAC VERIFICATION
   async handlePaymobWebhook(payload: any, hmacHeader?: string) {
     const isValidHmac = this.paymobService.verifyWebhookHmac(payload, hmacHeader);
     if (!isValidHmac) {
@@ -352,17 +339,87 @@ export class PaymentService {
       return { received: true, note: 'No merchant order ID in webhook payload' };
     }
 
-    const payment = await this.paymentRepo.findOne({
+    let payment = await this.paymentRepo.findOne({
       filter: {
-        $or: [{ transactionId: merchantOrderId }, { _id: Types.ObjectId.isValid(merchantOrderId) ? merchantOrderId : undefined }],
+        $or: [
+          { transactionId: merchantOrderId },
+          { _id: Types.ObjectId.isValid(merchantOrderId) ? merchantOrderId : undefined },
+          { bookingId: Types.ObjectId.isValid(merchantOrderId) ? merchantOrderId : undefined },
+        ],
       },
     });
 
-    if (!payment) {
-      throw new NotFoundException(`Payment record not found for order ${merchantOrderId}`);
+    let booking: any = null;
+    if (payment) {
+      booking = await this.bookingRepo.findById(payment.bookingId);
+    } else {
+      booking = await this.bookingRepo.findOne({
+        filter: {
+          $or: [
+            { _id: Types.ObjectId.isValid(merchantOrderId) ? merchantOrderId : undefined },
+            { bookingCode: merchantOrderId },
+          ],
+        },
+      });
+
+      if (booking) {
+        payment = await this.paymentRepo.create({
+          bookingId: booking._id,
+          userId: booking.userId,
+          amount: booking.finalPrice ?? booking.totalPrice,
+          transactionId: merchantOrderId,
+          status: PaymentStatusEnum.unpaid,
+        });
+      }
+    }
+
+    if(!payment || !booking) {
+      throw new NotFoundException(`Payment or booking record not found for order ${merchantOrderId}`);
+    }
+    if (payment.status === PaymentStatusEnum.paid) {
+      return { received: true, status: payment.status, note: 'Webhook already processed. Payment is marked as paid.' };
+    }
+    if (payment.status === PaymentStatusEnum.refunded) {
+      return { received: true, status: payment.status, note: 'Webhook already processed. Payment is refunded.' };
     }
 
     if (success && !pending) {
+
+      // 2. LATE / EXPIRED / CANCELLED WEBHOOK HANDLING
+      const now = new Date();
+      const isBookingExpired =
+        booking.status === BookingStatusEnum.expired ||
+        (booking.status === BookingStatusEnum.pending && booking.expiresAt && new Date(booking.expiresAt) <= now);
+      const isBookingCancelled = booking.status === BookingStatusEnum.cancelled;
+
+      if (isBookingExpired || isBookingCancelled) {
+        // Automatically refund payment to user's wallet rather than reviving expired slot
+        payment.status = PaymentStatusEnum.refunded;
+        payment.paidAt = new Date();
+        payment.refundedAmount = payment.amount;
+        payment.refundReason = 'Late payment received after booking hold expired or was cancelled. Automatically credited to wallet.';
+        await payment.save();
+
+        await this.walletService.refundBooking(payment.userId, payment.amount, payment.bookingId.toString());
+
+        if (booking.status !== BookingStatusEnum.cancelled) {
+          await this.bookingRepo.findByIdAndUpdate({
+            id: booking._id,
+            update: {
+              status: BookingStatusEnum.expired,
+              paymentStatus: PaymentStatusEnum.refunded,
+            },
+          });
+        }
+
+        return {
+          received: true,
+          status: PaymentStatusEnum.refunded,
+          note: 'Booking hold had expired. Payment automatically refunded to user wallet.',
+        };
+      }
+
+      // 3. NORMAL SUCCESS PATH
       payment.status = PaymentStatusEnum.paid;
       payment.paidAt = new Date();
       await payment.save();
@@ -375,9 +432,12 @@ export class PaymentService {
           expiresAt: null,
         },
       });
-    } else if (!success) {
+
+      return { received: true, status: PaymentStatusEnum.paid };
+    } else if (!success && !pending) {
       payment.status = PaymentStatusEnum.unpaid;
       await payment.save();
+      return { received: true, status: payment.status };
     }
 
     return { received: true, status: payment.status };

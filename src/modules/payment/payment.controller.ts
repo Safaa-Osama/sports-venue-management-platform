@@ -1,23 +1,11 @@
 import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  Param,
-  Patch,
-  Post,
-  Query,
+  Body, Controller, Get, Headers, Param, Patch, Post, Query,
 } from '@nestjs/common';
 import { auth } from 'src/common/decorator/auth.decorator';
 import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import type { UserDocument } from '../user/entities/user.entity';
-import {
-  CreatePaymentDto,
-  MarkCashPaidDto,
-  QueryPaymentDto,
-  RefundPaymentDto,
-} from './dto/payment.dto';
+import { CreatePaymentDto, MarkCashPaidDto, QueryPaymentDto, RefundPaymentDto } from './dto/payment.dto';
 import { PaymentService } from './payment.service';
 
 @Controller('payment')
@@ -26,34 +14,9 @@ export class PaymentController {
 
   @Post()
   @auth({
-    roles: [
-      RoleEnum.customer,
-      RoleEnum.user,
-      RoleEnum.owner,
-      RoleEnum.manager,
-      RoleEnum.admin,
-      RoleEnum.superAdmin,
-    ],
+    roles: [RoleEnum.customer, RoleEnum.user, RoleEnum.owner, RoleEnum.manager, RoleEnum.admin, RoleEnum.superAdmin],
   })
   createPayment(
-    @Body() body: CreatePaymentDto,
-    @User() user: UserDocument,
-  ) {
-    return this.paymentService.createPayment(body, user);
-  }
-
-  @Post('process')
-  @auth({
-    roles: [
-      RoleEnum.customer,
-      RoleEnum.user,
-      RoleEnum.owner,
-      RoleEnum.manager,
-      RoleEnum.admin,
-      RoleEnum.superAdmin,
-    ],
-  })
-  processPayment(
     @Body() body: CreatePaymentDto,
     @User() user: UserDocument,
   ) {
@@ -71,12 +34,7 @@ export class PaymentController {
 
   @Get('venue/:venueId')
   @auth({
-    roles: [
-      RoleEnum.owner,
-      RoleEnum.manager,
-      RoleEnum.admin,
-      RoleEnum.superAdmin,
-    ],
+    roles: [RoleEnum.owner, RoleEnum.manager, RoleEnum.admin, RoleEnum.superAdmin,],
   })
   getVenuePayments(
     @Param('venueId') venueId: string,
@@ -97,12 +55,7 @@ export class PaymentController {
 
   @Patch(':id/mark-cash-paid')
   @auth({
-    roles: [
-      RoleEnum.owner,
-      RoleEnum.manager,
-      RoleEnum.admin,
-      RoleEnum.superAdmin,
-    ],
+    roles: [RoleEnum.owner, RoleEnum.manager, RoleEnum.admin, RoleEnum.superAdmin,],
   })
   markCashPaid(
     @Param('id') id: string,
@@ -114,12 +67,7 @@ export class PaymentController {
 
   @Post(':id/refund')
   @auth({
-    roles: [
-      RoleEnum.owner,
-      RoleEnum.manager,
-      RoleEnum.admin,
-      RoleEnum.superAdmin,
-    ],
+    roles: [RoleEnum.owner, RoleEnum.manager, RoleEnum.admin, RoleEnum.superAdmin,],
   })
   refundPayment(
     @Param('id') id: string,

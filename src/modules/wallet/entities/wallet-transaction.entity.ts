@@ -17,9 +17,6 @@ export class WalletTransaction {
   @Prop({ type: Types.ObjectId, ref: Wallet.name, required: true })
   walletId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: User.name, required: true })
-  userId: Types.ObjectId;
-
   @Prop({ type: String, enum: TransactionTypeEnum, required: true })
   type: TransactionTypeEnum;
 

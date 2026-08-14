@@ -1,4 +1,4 @@
-import { DeleteResult, PopulateOptions, UpdateQuery } from 'mongoose';
+import { ClientSession, DeleteResult, PopulateOptions, UpdateQuery } from 'mongoose';
 import {
   HydratedDocument,
   ProjectionType,
@@ -12,15 +12,22 @@ abstract class BaseRepo<TDocument> {
   constructor(private Model: Model<TDocument>) {}
 
   public async create(
-    data: Partial<TDocument>,
+    data: Partial<TDocument> | Partial<TDocument>[],
+    options?: { session?: ClientSession },
   ): Promise<HydratedDocument<TDocument>> {
-    return this.Model.create(data);
+    if (options?.session) {
+      const docs = await this.Model.create((Array.isArray(data) ? data : [data]) as any, { session: options.session });
+      return docs[0] as HydratedDocument<TDocument>;
+    }
+    return this.Model.create(data as any);
   }
 
   public async findById(
     id: string | Types.ObjectId,
+    projection?: ProjectionType<TDocument> | null,
+    options?: QueryOptions<TDocument> | null,
   ): Promise<HydratedDocument<TDocument> | null> {
-    return this.Model.findById(id);
+    return this.Model.findById(id, projection, options);
   }
 
   public async findOne({
@@ -95,6 +102,13 @@ abstract class BaseRepo<TDocument> {
     options?: QueryOptions<TDocument>;
   }): Promise<HydratedDocument<TDocument> | null> {
     return this.Model.findOneAndDelete(filter, options);
+  }
+
+  async findByIdAndDelete(
+    id: string | Types.ObjectId,
+    options?: QueryOptions<TDocument>,
+  ): Promise<HydratedDocument<TDocument> | null> {
+    return this.Model.findByIdAndDelete(id, options);
   }
 
   async deleteMany({

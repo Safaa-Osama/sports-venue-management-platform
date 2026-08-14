@@ -28,32 +28,30 @@ export class AuthService {
     return this.otpService.sendOtp(body.phone);
   }
 
-  async verifyCustomerOtp(body: CustomerVerifyOtpDto, avatarFile?: Express.Multer.File) {
+  async verifyCustomerOtp(body: CustomerVerifyOtpDto, avatar?: Express.Multer.File) {
     const { phone, code, userName, position } = body;
 
-    // Verify OTP code
     await this.otpService.verifyOtp(phone, code);
 
-    // Find or create customer
     let customer = await this.customerUserRepo.findOne({ filter: { phone } });
 
     if (!customer) {
-      const finalName = userName || `Customer-${phone.slice(-4)}`;
       let uploadedImage: string | undefined;
 
-      if (avatarFile) {
+      if (avatar) {
         uploadedImage = await this.s3Service.uploadFile({
-          file: avatarFile,
+          file: avatar,
           path: 'customers',
         });
       }
 
 
       customer = await this.customerUserRepo.create({
-        userName: finalName,
+        userName,
         phone,
         position,
         avatar: uploadedImage,
+        provider: ProviderEnum.system,
         walletBalance: 0,
       });
 

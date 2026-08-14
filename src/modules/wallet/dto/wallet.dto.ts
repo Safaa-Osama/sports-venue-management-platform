@@ -61,7 +61,6 @@ export class AdminDeductWalletDto {
   referenceId?: string;
 }
 
-// Backward compatibility DTO
 export class DeductWalletDto {
   @IsOptional()
   @IsMongoId()

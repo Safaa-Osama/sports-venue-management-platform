@@ -9,7 +9,7 @@ export class CustomerSendOtpDto {
 
 export class CustomerVerifyOtpDto {
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   phone: string;
 
   @IsString()

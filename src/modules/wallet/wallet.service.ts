@@ -1,14 +1,13 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
-import { Types } from 'mongoose';
+import { randomUUID } from 'crypto';
+import { ClientSession, Types } from 'mongoose';
+import { RoleEnum } from 'src/common/enums/userEnum';
 import { TransactionStatusEnum, TransactionTypeEnum } from 'src/common/enums/walletEnum';
 import { WalletRepo } from 'src/common/reposetories/wallet-repo';
 import { WalletTransactionRepo } from 'src/common/reposetories/wallet-transaction-repo';
-import { AdminDeductWalletDto, CreateWalletDto, DeductWalletDto, DepositWalletDto, GetTransactionsDto, UserDeductWalletDto, } from './dto/wallet.dto';
-import { WalletDocument } from './entities/wallet.entity';
-import { RoleEnum } from 'src/common/enums/userEnum';
-import type { UserDocument } from '../user/entities/user.entity';
-import { randomUUID } from 'crypto';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
+import type { UserDocument } from '../user/entities/user.entity';
+import { AdminDeductWalletDto, CreateWalletDto, DepositWalletDto, GetTransactionsDto, UserDeductWalletDto } from './dto/wallet.dto';
 
 
 @Injectable()
@@ -25,15 +24,21 @@ export class WalletService {
     return `TXN-${dateStr}-${uuid}`;
   }
 
-  async getOrCreateWallet(userId: string | Types.ObjectId){
+  async getOrCreateWallet(userId: string | Types.ObjectId, session?: ClientSession) {
     const userObjId = typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
-    let wallet = await this.walletRepo.findOne({ filter: { userId: userObjId } });
+    let wallet = await this.walletRepo.findOne({
+      filter: { userId },
+      options: { session },
+    });
 
     if (!wallet) {
-      wallet = await this.walletRepo.create({
-        userId: userObjId,
-        balance: 0,
-      });
+      wallet = await this.walletRepo.create(
+        {
+          userId: userObjId,
+          balance: 0,
+        },
+        { session },
+      );
     }
     return wallet;
   }
@@ -48,22 +53,21 @@ export class WalletService {
   }
 
 
-  async createWallet(dto: CreateWalletDto) {
-    if (!Types.ObjectId.isValid(dto.userId)) {
+
+  async createWallet(body: CreateWalletDto) {
+    if (!Types.ObjectId.isValid(body.userId)) {
       throw new BadRequestException('Invalid user ID');
     }
-    const userObjId = new Types.ObjectId(dto.userId);
-    const existing = await this.walletRepo.findOne({ filter: { userId: userObjId } });
+    const existing = await this.walletRepo.findOne({ filter: { userId: body.userId } });
     if (existing) {
       throw new ConflictException('Wallet already exists for this user');
     }
-
     const wallet = await this.walletRepo.create({
-      userId: userObjId,
+      userId: new Types.ObjectId(body.userId),
       balance: 0,
     });
 
-    return wallet
+    return wallet;
   }
 
 
@@ -72,19 +76,20 @@ export class WalletService {
     dto: DepositWalletDto,
     type: TransactionTypeEnum = TransactionTypeEnum.DEPOSIT,
     user?: UserDocument,
+    session?: ClientSession,
   ) {
     const { amount } = dto;
     const targetUserId = user?._id || dto.userId;
     if (!targetUserId) {
       throw new BadRequestException('User ID is required for deposit');
     }
-    const wallet = await this.getOrCreateWallet(targetUserId);
+    const wallet = await this.getOrCreateWallet(targetUserId, session);
     const balanceBefore = wallet.balance;
 
     const updatedWallet = await this.walletRepo.findOneAndUpdate({
       filter: { _id: wallet._id },
       update: { $inc: { balance: amount } },
-      options: { new: true },
+      options: { session, new: true, returnDocument: 'after' },
     });
 
     if (!updatedWallet) {
@@ -92,36 +97,39 @@ export class WalletService {
     }
 
     const receiptNumber = this.generateReceiptNumber();
-    const transaction = await this.walletTransactionRepo.create({
-      walletId: updatedWallet._id,
-      userId: wallet.userId,
-      type,
-      status: TransactionStatusEnum.SUCCESS,
-      amount,
-      balanceBefore,
-      balanceAfter: updatedWallet.balance,
-      receiptNumber,
-      referenceId: dto.referenceId,
-      description: dto.description || 'Wallet deposit top-up',
-    });
+    const transaction = await this.walletTransactionRepo.create(
+      {
+        walletId: updatedWallet._id,
+        type,
+        status: TransactionStatusEnum.SUCCESS,
+        amount,
+        balanceBefore,
+        balanceAfter: updatedWallet.balance,
+        receiptNumber,
+        referenceId: dto.referenceId,
+        description: dto.description || 'Wallet deposit top-up',
+      },
+      { session },
+    );
 
-    return { updatedWallet, transaction }
+    return { updatedWallet, transaction };
 
   }
 
-  
-  private async processDeduction(
+
+  async processDeduction(
     targetUserId: string | Types.ObjectId,
     amount: number,
     type: TransactionTypeEnum,
     description?: string,
     referenceId?: string,
-    deductBy?: Types.ObjectId
+    deductBy?: Types.ObjectId,
+    session?: ClientSession,
   ) {
     const userObjId =
       typeof targetUserId === 'string' ? new Types.ObjectId(targetUserId) : targetUserId;
 
-    const wallet = await this.getOrCreateWallet(userObjId);
+    const wallet = await this.getOrCreateWallet(userObjId, session);
 
     if (wallet.balance < amount) {
       throw new BadRequestException(
@@ -134,7 +142,7 @@ export class WalletService {
     const updatedWallet = await this.walletRepo.findOneAndUpdate({
       filter: { _id: wallet._id, balance: { $gte: amount } },
       update: { $inc: { balance: -amount } },
-      options: { new: true },
+      options: { session, new: true, returnDocument: 'after' },
     });
 
     if (!updatedWallet) {
@@ -144,20 +152,34 @@ export class WalletService {
     }
 
     const receiptNumber = this.generateReceiptNumber();
-    const transaction = await this.walletTransactionRepo.create({
-      walletId: updatedWallet._id,
-      userId: wallet.userId,
-      type,
-      status: TransactionStatusEnum.SUCCESS,
-      amount,
-      balanceBefore,
-      balanceAfter: updatedWallet.balance,
-      receiptNumber,
-      referenceId,
-      description: description || 'Wallet deduction',
-    });
+    let transaction: any;
+    try {
+      transaction = await this.walletTransactionRepo.create(
+        {
+          walletId: updatedWallet._id,
+          type,
+          status: TransactionStatusEnum.SUCCESS,
+          amount,
+          balanceBefore,
+          balanceAfter: updatedWallet.balance,
+          receiptNumber,
+          referenceId,
+          description: description || 'Wallet deduction',
+        },
+        { session },
+      );
+    } catch (txnErr) {
+      if (!session) {
+        // Compensating rollback when not running inside a native replica set session
+        await this.walletRepo.findOneAndUpdate({
+          filter: { _id: updatedWallet._id },
+          update: { $inc: { balance: amount } },
+        });
+      }
+      throw txnErr;
+    }
 
-    return { updatedWallet, transaction }
+    return { updatedWallet, transaction };
   }
 
 
@@ -191,19 +213,21 @@ export class WalletService {
     return result;
   }
 
- 
 
-  async payForBooking(userId: string | Types.ObjectId, amount: number, bookingId: string) {
+
+  async payForBooking(userId: string | Types.ObjectId, amount: number, bookingId: string, session?: ClientSession) {
     return this.processDeduction(
       userId,
       amount,
       TransactionTypeEnum.BOOKING_PAYMENT,
       `Payment for booking #${bookingId}`,
       bookingId,
+      undefined,
+      session,
     );
   }
 
-  async refundBooking(userId: string | Types.ObjectId, amount: number, bookingId: string, user?: UserDocument) {
+  async refundBooking(userId: string | Types.ObjectId, amount: number, bookingId: string, user?: UserDocument, session?: ClientSession) {
     return this.deposit(
       {
         userId: userId.toString(),
@@ -213,6 +237,7 @@ export class WalletService {
       },
       TransactionTypeEnum.BOOKING_REFUND,
       user,
+      session,
     );
   }
 

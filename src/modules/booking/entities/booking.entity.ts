@@ -1,6 +1,8 @@
 import { MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { BookingStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
+import { CustomerUser } from 'src/modules/user/entities/customer-user.entity';
+import { Venue } from 'src/modules/venue/entities/venue.entity';
 
 export type BookingDocument = HydratedDocument<Booking>;
 
@@ -12,10 +14,10 @@ export type BookingDocument = HydratedDocument<Booking>;
   toObject: { virtuals: true },
 })
 export class Booking {
-  @Prop({ type: Types.ObjectId, ref: 'CustomerUser', required: true })
+  @Prop({ type: Types.ObjectId, ref: CustomerUser.name, required: true })
   userId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Venue', required: true })
+  @Prop({ type: Types.ObjectId, ref: Venue.name, required: true })
   venueId: Types.ObjectId;
 
   @Prop({ type: Date, required: true })
@@ -56,9 +58,16 @@ export class Booking {
 
   @Prop({ type: Date })
   expiresAt?: Date;
+
+  @Prop({ type: String, index: true })
+  idempotencyKey?: string;
+
+  @Prop({ type: String })
+  requestHash?: string;
 }
 
 export const BookingSchema = SchemaFactory.createForClass(Booking);
+BookingSchema.index({ userId: 1, idempotencyKey: 1 }, { sparse: true });
 
 const BookingModel = MongooseModule.forFeature([
   { name: Booking.name, schema: BookingSchema },

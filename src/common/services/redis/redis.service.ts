@@ -4,19 +4,9 @@ import { type RedisClientType } from 'redis';
 
 @Injectable()
 export class RedisService {
-  constructor(
-    @Inject('REDIS_CLIENT') protected readonly client: RedisClientType,
-  ) {}
+  constructor(@Inject('REDIS_CLIENT') protected readonly client: RedisClientType,) { }
 
-  async setValue({
-    key,
-    value,
-    ttl,
-  }: {
-    key: string;
-    value: string | object;
-    ttl?: number;
-  }): Promise<void> {
+  async setValue({ key, value, ttl, }: { key: string; value: string | object; ttl?: number; }): Promise<void> {
     const data = typeof value === 'string' ? value : JSON.stringify(value);
     if (ttl) {
       await this.client.set(key, data, { EX: ttl });
@@ -25,19 +15,17 @@ export class RedisService {
     }
   }
 
-  async getValue<T = any>(key: string): Promise<T | string | null> {
-    try {
-      const raw = await this.client.get(key);
-      if (!raw) return null;
-      try {
-        return JSON.parse(raw) as T;
-      } catch {
-        return raw;
-      }
-    } catch {
-      return null;
+   getValue = async (key: string) => {
+        try {
+            try {
+                return JSON.parse(await this.client.get(key) as string)
+            } catch (error) {
+                return await this.client.get(key)
+            }
+        } catch (error) {
+            console.log("error to get operation", error)
+        }
     }
-  }
 
   async update({
     key,
@@ -124,6 +112,24 @@ export class RedisService {
   async inc(key: string): Promise<number> {
     try {
       return await this.client.incr(key);
+    } catch {
+      return 0;
+    }
+  }
+
+  async acquireLock(key: string, ttlSeconds: number = 5): Promise<boolean> {
+    try {
+      const res = await this.client.set(key, 'locked', { NX: true, EX: ttlSeconds });
+      return res === 'OK';
+    } catch {
+      // If redis is unavailable or errors, return true so system gracefully falls back
+      return true;
+    }
+  }
+
+  async releaseLock(key: string): Promise<number> {
+    try {
+      return await this.client.del(key);
     } catch {
       return 0;
     }

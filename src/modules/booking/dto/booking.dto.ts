@@ -1,7 +1,48 @@
 import { Type } from 'class-transformer';
-import { IsDate, IsDateString, IsEnum, IsInt, IsMongoId, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min, Validate, validate } from 'class-validator';
-import { isDateAfter } from 'src/common/decorator/coupon.decorator';
+import {
+  IsDate,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsMongoId,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  registerDecorator,
+  ValidationArguments,
+  ValidationOptions,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+} from 'class-validator';
 import { BookingStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
+
+@ValidatorConstraint({ name: 'isGreaterThan', async: false })
+export class IsGreaterThanConstraint implements ValidatorConstraintInterface {
+  validate(propertyValue: any, args: ValidationArguments) {
+    const [relatedPropertyName] = args.constraints;
+    const relatedValue = (args.object as any)[relatedPropertyName];
+    return typeof propertyValue === 'number' && typeof relatedValue === 'number' && propertyValue > relatedValue;
+  }
+
+  defaultMessage(args: ValidationArguments) {
+    const [relatedPropertyName] = args.constraints;
+    return `${args.property} must be strictly greater than ${relatedPropertyName}`;
+  }
+}
+
+export function IsGreaterThan(property: string, validationOptions?: ValidationOptions) {
+  return function (object: Object, propertyName: string) {
+    registerDecorator({
+      target: object.constructor,
+      propertyName: propertyName,
+      options: validationOptions,
+      constraints: [property],
+      validator: IsGreaterThanConstraint,
+    });
+  };
+}
 
 export class CreateBookingDto {
   @IsMongoId()
@@ -12,19 +53,28 @@ export class CreateBookingDto {
   @IsNotEmpty()
   date: string;
 
-  @IsNumber()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(23)
   @IsNotEmpty()
-  @Validate(isDateAfter)
   startTime: number;
 
-  @IsNumber()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(24)
   @IsNotEmpty()
-  @Validate(isDateAfter, ["startTime"])
+  @IsGreaterThan('startTime', { message: 'endTime must be greater than startTime' })
   endTime: number;
 
   @IsOptional()
   @IsString()
   couponCode?: string;
+
+  @IsOptional()
+  @IsString()
+  idempotencyKey?: string;
 
   @IsEnum(PaymentMethodEnum)
   @IsNotEmpty()

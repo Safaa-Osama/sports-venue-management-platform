@@ -1,6 +1,8 @@
 import { MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
+import { Booking } from 'src/modules/booking/entities/booking.entity';
+import { CustomerUser } from 'src/modules/user/entities/customer-user.entity';
 
 export type PaymentDocument = HydratedDocument<Payment>;
 
@@ -12,23 +14,17 @@ export type PaymentDocument = HydratedDocument<Payment>;
   toObject: { virtuals: true },
 })
 export class Payment {
-  @Prop({ required: true, type: Types.ObjectId, ref: 'Booking' })
+  @Prop({ required: true, type: Types.ObjectId, ref: Booking.name })
   bookingId: Types.ObjectId;
 
-  @Prop({ required: true, type: Types.ObjectId, ref: 'User' })
+  @Prop({ required: true, type: Types.ObjectId, ref: CustomerUser.name })
   userId: Types.ObjectId;
 
   @Prop({ type: Number, required: true })
   amount: number;
 
-  @Prop({ type: String, required: true, default: 'EGP' })
-  currency: string;
-
   @Prop({ type: String, enum: PaymentMethodEnum, required: true })
   paymentMethod: PaymentMethodEnum;
-
-  @Prop({ type: String, required: true })
-  provider: string;
 
   @Prop({ type: String, required: true, unique: true })
   transactionId: string;
