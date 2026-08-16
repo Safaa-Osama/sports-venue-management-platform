@@ -42,4 +42,3 @@ import { PaymobService } from 'src/common/integration/paymob/paymob.service';
   exports: [PaymentService, PaymentRepo],
 })
 export class PaymentModule {}
-

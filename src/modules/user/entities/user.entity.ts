@@ -29,7 +29,6 @@ export class User {
 
   @Prop({ type: Number, default: 0 })
   walletBalance: number;
-
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

@@ -42,7 +42,6 @@ export class VenueAmenities {
   EquipmentRental: boolean;
 }
 
-
 @Schema({
   timestamps: true,
   strictQuery: true,
@@ -81,7 +80,7 @@ export class Venue {
   @Prop({
     type: Number,
     default: function (this: Venue) {
-      return (this.endWorkingHours - this.startWorkingHours);
+      return this.endWorkingHours - this.startWorkingHours;
     },
   })
   WorkingHours: number;

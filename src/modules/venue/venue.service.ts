@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { VenueRepo } from 'src/common/reposetories/venue-repo';
 import { CreateVenueDto, UpdateteVenueDto } from './dto/venue.dto';
 import { S3Service } from 'src/common/services/s3Service/s3.service';
@@ -25,7 +30,7 @@ export class VenueService {
   constructor(
     private readonly venueRepo: VenueRepo,
     private readonly s3service: S3Service,
-  ) { }
+  ) {}
 
   async createVenue(
     body: CreateVenueDto,
@@ -33,14 +38,22 @@ export class VenueService {
     images?: Express.Multer.File[],
   ) {
     const {
-      venueName, sportsType,
-      address, locationAlt, locationLang,
+      venueName,
+      sportsType,
+      address,
+      locationAlt,
+      locationLang,
       amenities,
-      startWorkingHours, endWorkingHours, defaultHourPrice, customHourPrices,
+      startWorkingHours,
+      endWorkingHours,
+      defaultHourPrice,
+      customHourPrices,
       isActive,
     } = body;
 
-    const existingVenue = await this.venueRepo.findOne({ filter: { venueName } });
+    const existingVenue = await this.venueRepo.findOne({
+      filter: { venueName },
+    });
     if (existingVenue) {
       throw new BadRequestException('Venue name already exists');
     }
@@ -90,8 +103,8 @@ export class VenueService {
     });
 
     if (!venue) {
-      await this.s3service.deleteManyFiles(uploadedImages)
-      throw new BadRequestException('Failed to create venue')
+      await this.s3service.deleteManyFiles(uploadedImages);
+      throw new BadRequestException('Failed to create venue');
     }
 
     return venue;
@@ -125,7 +138,9 @@ export class VenueService {
     const updateData: Record<string, any> = { updatedBy: user._id };
 
     if (venueName && venueName !== venue.venueName) {
-      const existingVenue = await this.venueRepo.findOne({ filter: { venueName } });
+      const existingVenue = await this.venueRepo.findOne({
+        filter: { venueName },
+      });
       if (existingVenue) {
         throw new ConflictException('Venue name already exists');
       }
@@ -136,15 +151,23 @@ export class VenueService {
     if (sportsType !== undefined) updateData.sportsType = sportsType;
     if (locationAlt !== undefined) updateData.locationAlt = locationAlt;
     if (locationLang !== undefined) updateData.locationLang = locationLang;
-    if (defaultHourPrice !== undefined) updateData.defaultHourPrice = defaultHourPrice;
-    if (customHourPrices !== undefined) updateData.customHourPrices = customHourPrices;
+    if (defaultHourPrice !== undefined)
+      updateData.defaultHourPrice = defaultHourPrice;
+    if (customHourPrices !== undefined)
+      updateData.customHourPrices = customHourPrices;
     if (isActive !== undefined) updateData.isActive = isActive;
 
-    const newStart = startWorkingHours !== undefined ? startWorkingHours : venue.startWorkingHours;
-    const newEnd = endWorkingHours !== undefined ? endWorkingHours : venue.endWorkingHours;
+    const newStart =
+      startWorkingHours !== undefined
+        ? startWorkingHours
+        : venue.startWorkingHours;
+    const newEnd =
+      endWorkingHours !== undefined ? endWorkingHours : venue.endWorkingHours;
 
-    if (startWorkingHours !== undefined) updateData.startWorkingHours = startWorkingHours;
-    if (endWorkingHours !== undefined) updateData.endWorkingHours = endWorkingHours;
+    if (startWorkingHours !== undefined)
+      updateData.startWorkingHours = startWorkingHours;
+    if (endWorkingHours !== undefined)
+      updateData.endWorkingHours = endWorkingHours;
     if (startWorkingHours !== undefined || endWorkingHours !== undefined) {
       updateData.WorkingHours = newEnd - newStart;
     }
@@ -193,11 +216,12 @@ export class VenueService {
     if (!venue) {
       throw new NotFoundException('Venue not found');
     }
-    await this.venueRepo.findOneAndDelete({ filter: { id, deletedBy: user._id },
-      options: { deletedAt: new Date(), isDeleted: true } });
+    await this.venueRepo.findOneAndDelete({
+      filter: { id, deletedBy: user._id },
+      options: { deletedAt: new Date(), isDeleted: true },
+    });
 
     await this.s3service.deleteManyFiles(venue.images);
     return { message: 'Venue deleted successfully' };
   }
-
 }

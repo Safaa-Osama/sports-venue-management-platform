@@ -1,6 +1,9 @@
 import { MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import { PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
+import {
+  PaymentMethodEnum,
+  PaymentStatusEnum,
+} from 'src/common/enums/bookingEnum';
 import { Booking } from 'src/modules/booking/entities/booking.entity';
 import { CustomerUser } from 'src/modules/user/entities/customer-user.entity';
 
@@ -29,7 +32,11 @@ export class Payment {
   @Prop({ type: String, required: true, unique: true })
   transactionId: string;
 
-  @Prop({ type: String, enum: PaymentStatusEnum, default: PaymentStatusEnum.unpaid })
+  @Prop({
+    type: String,
+    enum: PaymentStatusEnum,
+    default: PaymentStatusEnum.unpaid,
+  })
   status: PaymentStatusEnum;
 
   @Prop({ type: Date, required: false })

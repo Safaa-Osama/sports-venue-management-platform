@@ -1,40 +1,107 @@
 import {
-  Body, Controller, Get, Headers, Param, Patch, Post, Query,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiHeader,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { auth } from 'src/common/decorator/auth.decorator';
 import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import type { UserDocument } from '../user/entities/user.entity';
-import { CreatePaymentDto, MarkCashPaidDto, QueryPaymentDto, RefundPaymentDto } from './dto/payment.dto';
+import {
+  CreatePaymentDto,
+  MarkCashPaidDto,
+  QueryPaymentDto,
+  RefundPaymentDto,
+} from './dto/payment.dto';
 import { PaymentService } from './payment.service';
 
+@ApiTags('Payments')
 @Controller('payment')
 export class PaymentController {
-  constructor(private readonly paymentService: PaymentService) { }
+  constructor(private readonly paymentService: PaymentService) {}
 
   @Post()
-  @auth({
-    roles: [RoleEnum.customer, RoleEnum.user, RoleEnum.owner, RoleEnum.manager, RoleEnum.admin, RoleEnum.superAdmin],
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Initiate Payment for Booking',
+    description:
+      'Creates a payment transaction for an existing booking using either digital wallet balance, cash on venue, or returns Paymob checkout URL/iframe details for card payment.',
   })
-  createPayment(
-    @Body() body: CreatePaymentDto,
-    @User() user: UserDocument,
-  ) {
+  @ApiResponse({
+    status: 201,
+    description: 'Payment initiated / completed successfully',
+    schema: {
+      example: {
+        success: true,
+        statusCode: 201,
+        message: 'done',
+        data: {
+          _id: '64e8b0a1f2b4c10012345690',
+          bookingId: '64e8b0a1f2b4c10012345680',
+          amount: 450,
+          paymentMethod: 'wallet',
+          status: 'paid',
+          referenceId: 'TXN-123456',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Booking already paid, expired, or insufficient balance' })
+  @auth({
+    roles: [
+      RoleEnum.customer,
+      RoleEnum.user,
+      RoleEnum.owner,
+      RoleEnum.manager,
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+    ],
+  })
+  createPayment(@Body() body: CreatePaymentDto, @User() user: UserDocument) {
     return this.paymentService.createPayment(body, user);
   }
 
   @Get('my-payments')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get Customer Payment History',
+    description: 'Returns all payment transactions belonging to the currently logged in customer.',
+  })
+  @ApiResponse({ status: 200, description: 'Customer payment history retrieved' })
   @auth({ roles: [RoleEnum.customer, RoleEnum.user] })
-  getMyPayments(
-    @User() user: UserDocument,
-    @Query() query: QueryPaymentDto,
-  ) {
+  getMyPayments(@User() user: UserDocument, @Query() query: QueryPaymentDto) {
     return this.paymentService.getMyPayments(user, query);
   }
 
   @Get('venue/:venueId')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get Venue Payments (Owner / Admin / Manager)',
+    description: 'Retrieves all financial transactions and payment records for a specific sports venue.',
+  })
+  @ApiParam({ name: 'venueId', description: 'Venue MongoDB ID', example: '64e8b0a1f2b4c10012345678' })
+  @ApiResponse({ status: 200, description: 'Venue payments list retrieved' })
   @auth({
-    roles: [RoleEnum.owner, RoleEnum.manager, RoleEnum.admin, RoleEnum.superAdmin,],
+    roles: [
+      RoleEnum.owner,
+      RoleEnum.manager,
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+    ],
   })
   getVenuePayments(
     @Param('venueId') venueId: string,
@@ -45,17 +112,35 @@ export class PaymentController {
   }
 
   @Get(':id')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get Payment Details by ID',
+    description: 'Retrieves single transaction information by payment ID.',
+  })
+  @ApiParam({ name: 'id', description: 'Payment MongoDB ID', example: '64e8b0a1f2b4c10012345690' })
+  @ApiResponse({ status: 200, description: 'Payment transaction details retrieved' })
+  @ApiResponse({ status: 404, description: 'Payment not found' })
   @auth({})
-  getPaymentById(
-    @Param('id') id: string,
-    @User() user: UserDocument,
-  ) {
+  getPaymentById(@Param('id') id: string, @User() user: UserDocument) {
     return this.paymentService.getPaymentById(id, user);
   }
 
   @Patch(':id/mark-cash-paid')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Mark Cash as Paid (Owner / Admin / Manager)',
+    description:
+      'Settles an on-venue cash booking by marking the payment as paid once the customer pays reception.',
+  })
+  @ApiParam({ name: 'id', description: 'Payment MongoDB ID', example: '64e8b0a1f2b4c10012345690' })
+  @ApiResponse({ status: 200, description: 'Payment marked as paid and booking confirmed' })
   @auth({
-    roles: [RoleEnum.owner, RoleEnum.manager, RoleEnum.admin, RoleEnum.superAdmin,],
+    roles: [
+      RoleEnum.owner,
+      RoleEnum.manager,
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+    ],
   })
   markCashPaid(
     @Param('id') id: string,
@@ -66,8 +151,21 @@ export class PaymentController {
   }
 
   @Post(':id/refund')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Refund Payment (Owner / Admin / Manager)',
+    description: 'Processes a full or partial refund back to customer wallet or gateway source.',
+  })
+  @ApiParam({ name: 'id', description: 'Payment MongoDB ID', example: '64e8b0a1f2b4c10012345690' })
+  @ApiResponse({ status: 200, description: 'Refund processed successfully' })
+  @ApiResponse({ status: 400, description: 'Payment already refunded or invalid amount' })
   @auth({
-    roles: [RoleEnum.owner, RoleEnum.manager, RoleEnum.admin, RoleEnum.superAdmin,],
+    roles: [
+      RoleEnum.owner,
+      RoleEnum.manager,
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+    ],
   })
   refundPayment(
     @Param('id') id: string,
@@ -78,6 +176,14 @@ export class PaymentController {
   }
 
   @Post('webhook/paymob')
+  @ApiOperation({
+    summary: 'Paymob Payment Gateway Webhook',
+    description:
+      'Webhook callback from Paymob. Verifies HMAC security hash and marks online transactions as successful or failed.',
+  })
+  @ApiHeader({ name: 'hmac', description: 'Paymob HMAC signature header', required: false })
+  @ApiQuery({ name: 'hmac', description: 'Paymob HMAC signature query parameter', required: false })
+  @ApiResponse({ status: 200, description: 'Webhook processed' })
   handlePaymobWebhook(
     @Body() payload: any,
     @Headers('hmac') hmacHeader?: string,

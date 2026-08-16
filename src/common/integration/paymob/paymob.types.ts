@@ -21,7 +21,6 @@ export interface PaymobItem {
   quantity: number;
 }
 
-// 1. Paymob Intention API (v1 / Unified Checkout) Types
 export interface CreateIntentionParams {
   bookingId: string;
   transactionId: string;
@@ -31,6 +30,9 @@ export interface CreateIntentionParams {
   userName?: string;
   userPhone?: string;
   items?: PaymobItem[];
+  redirectionUrl?: string;
+  notificationUrl?: string;
+  paymentMethods?: (number | string)[];
 }
 
 export interface PaymobIntentionRequest {

@@ -1,10 +1,11 @@
 import { plainToInstance, Transform } from 'class-transformer';
-import { parseArrayOrJson, parseJson } from '../../utilis/transform.util'
+import { parseArrayOrJson, parseJson } from '../../utilis/transform.util';
 
 export function ParseArray() {
   return Transform(({ value }) => {
     const result = parseArrayOrJson(value);
-    return result});
+    return result;
+  });
 }
 
 export function ParseByJson(dtoClass?: any) {

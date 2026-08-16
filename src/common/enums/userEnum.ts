@@ -1,16 +1,15 @@
-
 export enum ProviderEnum {
   system = 'system',
   google = 'google',
 }
 
 export enum RoleEnum {
-  user = "user",
+  user = 'user',
   customer = 'customer',
   admin = 'admin',
   superAdmin = 'superAdmin',
   owner = 'owner',
-  manager = 'manager'
+  manager = 'manager',
 }
 
 export enum GenderEnum {

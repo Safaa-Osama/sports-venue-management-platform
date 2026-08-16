@@ -1,4 +1,4 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException } from '@nestjs/common';
 
 export function parseArrayOrJson(value: any): any {
   if (typeof value !== 'string') {
@@ -23,7 +23,7 @@ export function parseArrayOrJson(value: any): any {
   }
   return value
     .split(',')
-    .map(item => item.trim())
+    .map((item) => item.trim())
     .filter(Boolean);
 }
 

@@ -15,17 +15,18 @@ export class CustomerUser {
   @Prop({ type: String, required: true })
   userName: string;
 
-  @Prop({ type: String, enum: ProviderEnum , required: true })
+  @Prop({ type: String, enum: ProviderEnum, required: true })
   provider: ProviderEnum;
 
   @Prop({
-    type: String, trim: true,
+    type: String,
+    trim: true,
     required: function () {
-      return this.provider == ProviderEnum.system ? true : false
+      return this.provider == ProviderEnum.system ? true : false;
     },
-    unique: true
+    unique: true,
   })
-  phone?: string
+  phone?: string;
 
   @Prop({ type: String })
   avatar?: string;
@@ -36,11 +37,11 @@ export class CustomerUser {
   @Prop({ type: Number, default: 0 })
   walletBalance: number;
 
-  @Prop({type : Boolean , required : false})
-  emailConfirmed?: boolean
+  @Prop({ type: Boolean, required: false })
+  emailConfirmed?: boolean;
 
-  @Prop({type : String , required : false})
-  email?: string
+  @Prop({ type: String, required: true })
+  email: string;
 }
 
 export const CustomerUserSchema = SchemaFactory.createForClass(CustomerUser);

@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService, JwtSignOptions, JwtVerifyOptions } from '@nestjs/jwt';
 import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
 import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
@@ -34,11 +38,19 @@ export class TokenService {
   }
 
   getAccessSecret(): string {
-    return process.env.JWT_ACCESS_SECRET || process.env.SECRET_KEY_USER || 'default_access_secret';
+    return (
+      process.env.JWT_ACCESS_SECRET ||
+      process.env.SECRET_KEY_USER ||
+      'default_access_secret'
+    );
   }
 
   getRefreshSecret(): string {
-    return process.env.JWT_REFRESH_SECRET || process.env.REFRESH_SECRET_KEY_USER || 'default_refresh_secret';
+    return (
+      process.env.JWT_REFRESH_SECRET ||
+      process.env.REFRESH_SECRET_KEY_USER ||
+      'default_refresh_secret'
+    );
   }
 
   async authenticateToken_fetchUser(token: string) {
@@ -66,8 +78,11 @@ export class TokenService {
         filter: { _id: decoded.id },
       });
     } else {
-      user = (await this.customerUserRepo.findOne({ filter: { _id: decoded.id } })) ||
-             (await this.adminUserRepo.findOne({ filter: { _id: decoded.id } }));
+      user =
+        (await this.customerUserRepo.findOne({
+          filter: { _id: decoded.id },
+        })) ||
+        (await this.adminUserRepo.findOne({ filter: { _id: decoded.id } }));
     }
 
     if (!user) {

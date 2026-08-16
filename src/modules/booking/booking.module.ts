@@ -42,5 +42,4 @@ import bookingModel from './entities/booking.entity';
   ],
   exports: [],
 })
-export class BookingModule { }
-
+export class BookingModule {}

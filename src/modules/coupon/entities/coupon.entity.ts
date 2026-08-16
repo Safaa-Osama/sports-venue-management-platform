@@ -12,7 +12,13 @@ export type CouponDocument = HydratedDocument<Coupon>;
   toObject: { virtuals: true },
 })
 export class Coupon {
-  @Prop({ type: String, required: true, unique: true, uppercase: true, trim: true })
+  @Prop({
+    type: String,
+    required: true,
+    unique: true,
+    uppercase: true,
+    trim: true,
+  })
   code: string;
 
   @Prop({ type: Number, required: true })
@@ -38,7 +44,6 @@ export class Coupon {
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
   createdBy: Types.ObjectId;
-
 }
 
 export const CouponSchema = SchemaFactory.createForClass(Coupon);

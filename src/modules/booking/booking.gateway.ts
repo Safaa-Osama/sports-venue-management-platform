@@ -1,4 +1,11 @@
-import {ConnectedSocket,MessageBody,OnGatewayConnection,OnGatewayDisconnect,SubscribeMessage,WebSocketGateway,WebSocketServer,
+import {
+  ConnectedSocket,
+  MessageBody,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
@@ -7,7 +14,9 @@ import { Server, Socket } from 'socket.io';
     origin: '*',
   },
 })
-export class BookingGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class BookingGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server: Server;
 

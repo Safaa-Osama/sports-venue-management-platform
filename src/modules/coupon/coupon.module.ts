@@ -13,11 +13,19 @@ import adminUserModel from '../user/entities/admin-user.entity';
 import customerUserModel from '../user/entities/customer-user.entity';
 import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
 
-
 @Module({
   imports: [couponModel, userModel, adminUserModel, customerUserModel],
   controllers: [CouponController],
-  providers: [CouponService, UserRepo, CustomerUserRepo,CouponRepo, AdminUserRepo, TokenService, JwtService,RedisService],
+  providers: [
+    CouponService,
+    UserRepo,
+    CustomerUserRepo,
+    CouponRepo,
+    AdminUserRepo,
+    TokenService,
+    JwtService,
+    RedisService,
+  ],
   exports: [],
 })
 export class CouponModule {}

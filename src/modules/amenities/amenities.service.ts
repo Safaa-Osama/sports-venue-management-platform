@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { amenitiesRepo } from 'src/common/reposetories/amenities-repo';
 import { VenueRepo } from 'src/common/reposetories/venue-repo';
 import { CreateAmenitiesDto, UpdateAmenitiesDto } from './dto/amenities.dto';
@@ -27,7 +32,9 @@ export class AmenitiesService {
       filter: { venueId: new Types.ObjectId(venueId) },
     });
     if (existing) {
-      throw new ConflictException(`Amenities for venue ${venueId} already exist. Use update instead.`);
+      throw new ConflictException(
+        `Amenities for venue ${venueId} already exist. Use update instead.`,
+      );
     }
 
     const amenities = await this.amenitiesRepo.create({
@@ -69,7 +76,9 @@ export class AmenitiesService {
     });
 
     if (!amenity) {
-      throw new NotFoundException(`Amenities for venue ID ${venueId} not found`);
+      throw new NotFoundException(
+        `Amenities for venue ID ${venueId} not found`,
+      );
     }
 
     return amenity;

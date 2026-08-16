@@ -4,8 +4,8 @@ import { randomInt } from 'crypto';
 
 @Injectable()
 export class OtpService {
-  private readonly OTP_TTL = 300; 
-  private readonly RATE_LIMIT_TTL = 60; 
+  private readonly OTP_TTL = 300;
+  private readonly RATE_LIMIT_TTL = 60;
 
   constructor(private readonly redisService: RedisService) {}
 
@@ -17,19 +17,31 @@ export class OtpService {
     return `otp_rate::${phone}`;
   }
 
-  async sendOtp(phone: string): Promise<{ success: boolean; message: string; devCode?: string }> {
+  async sendOtp(
+    phone: string,
+  ): Promise<{ success: boolean; message: string; devCode?: string }> {
     const rateLimitKey = this.getRateLimitKey(phone);
     const isRateLimited = await this.redisService.getValue(rateLimitKey);
 
     if (isRateLimited) {
-      throw new BadRequestException('Please wait 60 seconds before requesting another OTP.');
+      throw new BadRequestException(
+        'Please wait 60 seconds before requesting another OTP.',
+      );
     }
 
     const otpCode = randomInt(100000, 999999).toString();
     const otpKey = this.getOtpKey(phone);
 
-    await this.redisService.setValue({ key: otpKey, value: otpCode, ttl: this.OTP_TTL });
-    await this.redisService.setValue({ key: rateLimitKey, value: '1', ttl: this.RATE_LIMIT_TTL });
+    await this.redisService.setValue({
+      key: otpKey,
+      value: otpCode,
+      ttl: this.OTP_TTL,
+    });
+    await this.redisService.setValue({
+      key: rateLimitKey,
+      value: '1',
+      ttl: this.RATE_LIMIT_TTL,
+    });
 
     return {
       success: true,

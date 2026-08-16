@@ -1,4 +1,9 @@
-import { ClientSession, DeleteResult, PopulateOptions, UpdateQuery } from 'mongoose';
+import {
+  ClientSession,
+  DeleteResult,
+  PopulateOptions,
+  UpdateQuery,
+} from 'mongoose';
 import {
   HydratedDocument,
   ProjectionType,
@@ -16,7 +21,10 @@ abstract class BaseRepo<TDocument> {
     options?: { session?: ClientSession },
   ): Promise<HydratedDocument<TDocument>> {
     if (options?.session) {
-      const docs = await this.Model.create((Array.isArray(data) ? data : [data]) as any, { session: options.session });
+      const docs = await this.Model.create(
+        (Array.isArray(data) ? data : [data]) as any,
+        { session: options.session },
+      );
       return docs[0] as HydratedDocument<TDocument>;
     }
     return this.Model.create(data as any);

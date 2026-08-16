@@ -18,4 +18,3 @@ export enum PaymentMethodEnum {
   paymob = 'paymob',
   cash = 'cash',
 }
-

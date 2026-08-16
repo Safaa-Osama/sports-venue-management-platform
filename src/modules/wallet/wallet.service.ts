@@ -1,21 +1,33 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { ClientSession, Types } from 'mongoose';
 import { RoleEnum } from 'src/common/enums/userEnum';
-import { TransactionStatusEnum, TransactionTypeEnum } from 'src/common/enums/walletEnum';
+import {
+  TransactionStatusEnum,
+  TransactionTypeEnum,
+} from 'src/common/enums/walletEnum';
 import { WalletRepo } from 'src/common/reposetories/wallet-repo';
 import { WalletTransactionRepo } from 'src/common/reposetories/wallet-transaction-repo';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
 import type { UserDocument } from '../user/entities/user.entity';
-import { AdminDeductWalletDto, CreateWalletDto, DepositWalletDto, GetTransactionsDto, UserDeductWalletDto } from './dto/wallet.dto';
-
+import {
+  AdminDeductWalletDto,
+  CreateWalletDto,
+  DepositWalletDto,
+  GetTransactionsDto,
+  UserDeductWalletDto,
+} from './dto/wallet.dto';
 
 @Injectable()
 export class WalletService {
   constructor(
     private readonly walletRepo: WalletRepo,
     private readonly walletTransactionRepo: WalletTransactionRepo,
-  ) { }
+  ) {}
 
   private generateReceiptNumber(): string {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -24,8 +36,12 @@ export class WalletService {
     return `TXN-${dateStr}-${uuid}`;
   }
 
-  async getOrCreateWallet(userId: string | Types.ObjectId, session?: ClientSession) {
-    const userObjId = typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
+  async getOrCreateWallet(
+    userId: string | Types.ObjectId,
+    session?: ClientSession,
+  ) {
+    const userObjId =
+      typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
     let wallet = await this.walletRepo.findOne({
       filter: { userId },
       options: { session },
@@ -43,7 +59,6 @@ export class WalletService {
     return wallet;
   }
 
-
   async getWalletByUserId(userId: string) {
     if (!Types.ObjectId.isValid(userId)) {
       throw new BadRequestException('Invalid user ID');
@@ -52,13 +67,13 @@ export class WalletService {
     return wallet;
   }
 
-
-
   async createWallet(body: CreateWalletDto) {
     if (!Types.ObjectId.isValid(body.userId)) {
       throw new BadRequestException('Invalid user ID');
     }
-    const existing = await this.walletRepo.findOne({ filter: { userId: body.userId } });
+    const existing = await this.walletRepo.findOne({
+      filter: { userId: body.userId },
+    });
     if (existing) {
       throw new ConflictException('Wallet already exists for this user');
     }
@@ -69,8 +84,6 @@ export class WalletService {
 
     return wallet;
   }
-
-
 
   async deposit(
     dto: DepositWalletDto,
@@ -113,9 +126,7 @@ export class WalletService {
     );
 
     return { updatedWallet, transaction };
-
   }
-
 
   async processDeduction(
     targetUserId: string | Types.ObjectId,
@@ -127,7 +138,9 @@ export class WalletService {
     session?: ClientSession,
   ) {
     const userObjId =
-      typeof targetUserId === 'string' ? new Types.ObjectId(targetUserId) : targetUserId;
+      typeof targetUserId === 'string'
+        ? new Types.ObjectId(targetUserId)
+        : targetUserId;
 
     const wallet = await this.getOrCreateWallet(userObjId, session);
 
@@ -182,7 +195,6 @@ export class WalletService {
     return { updatedWallet, transaction };
   }
 
-
   async deductSelf(dto: UserDeductWalletDto, user: UserDocument) {
     const { amount } = dto;
     const result = await this.processDeduction(
@@ -207,15 +219,18 @@ export class WalletService {
       TransactionTypeEnum.DEDUCTION,
       dto.description,
       dto.referenceId,
-      user._id
+      user._id,
     );
 
     return result;
   }
 
-
-
-  async payForBooking(userId: string | Types.ObjectId, amount: number, bookingId: string, session?: ClientSession) {
+  async payForBooking(
+    userId: string | Types.ObjectId,
+    amount: number,
+    bookingId: string,
+    session?: ClientSession,
+  ) {
     return this.processDeduction(
       userId,
       amount,
@@ -227,7 +242,13 @@ export class WalletService {
     );
   }
 
-  async refundBooking(userId: string | Types.ObjectId, amount: number, bookingId: string, user?: UserDocument, session?: ClientSession) {
+  async refundBooking(
+    userId: string | Types.ObjectId,
+    amount: number,
+    bookingId: string,
+    user?: UserDocument,
+    session?: ClientSession,
+  ) {
     return this.deposit(
       {
         userId: userId.toString(),
@@ -240,7 +261,6 @@ export class WalletService {
       session,
     );
   }
-
 
   async getTransactions(queryDto: GetTransactionsDto, user: UserDocument) {
     const search: any = {};

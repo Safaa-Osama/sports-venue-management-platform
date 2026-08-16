@@ -1,7 +1,17 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Types } from 'mongoose';
-import { BookingStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
+import {
+  BookingStatusEnum,
+  PaymentMethodEnum,
+  PaymentStatusEnum,
+} from 'src/common/enums/bookingEnum';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { PaymobService } from 'src/common/integration/paymob/paymob.service';
 import { BookingRepo } from 'src/common/reposetories/booking-repo';
@@ -9,7 +19,12 @@ import { PaymentRepo } from 'src/common/reposetories/payment-repo';
 import { VenueRepo } from 'src/common/reposetories/venue-repo';
 import { UserDocument } from '../user/entities/user.entity';
 import { WalletService } from '../wallet/wallet.service';
-import { CreatePaymentDto, MarkCashPaidDto, QueryPaymentDto, RefundPaymentDto } from './dto/payment.dto';
+import {
+  CreatePaymentDto,
+  MarkCashPaidDto,
+  QueryPaymentDto,
+  RefundPaymentDto,
+} from './dto/payment.dto';
 
 @Injectable()
 export class PaymentService {
@@ -23,10 +38,12 @@ export class PaymentService {
 
   private generateTransactionId(): string {
     const timestamp = Date.now().toString(36).toUpperCase();
-    const randomStr = randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase();
+    const randomStr = randomUUID()
+      .replace(/-/g, '')
+      .substring(0, 8)
+      .toUpperCase();
     return `TXN-${timestamp}-${randomStr}`;
   }
-
 
   async createPayment(body: CreatePaymentDto, user: UserDocument) {
     const { bookingId, paymentMethod } = body;
@@ -36,7 +53,10 @@ export class PaymentService {
       throw new NotFoundException('Booking not found');
     }
 
-    if (booking.userId.toString() !== user._id.toString() && user.role === RoleEnum.customer) {
+    if (
+      booking.userId.toString() !== user._id.toString() &&
+      user.role === RoleEnum.customer
+    ) {
       throw new UnauthorizedException('You can only pay for your own bookings');
     }
 
@@ -44,16 +64,24 @@ export class PaymentService {
       throw new BadRequestException('Booking is already paid');
     }
 
-    if (booking.status === BookingStatusEnum.cancelled || booking.status === BookingStatusEnum.expired) {
-      throw new BadRequestException(`Cannot process payment for the ${booking.status} booking`);
+    if (
+      booking.status === BookingStatusEnum.cancelled ||
+      booking.status === BookingStatusEnum.expired
+    ) {
+      throw new BadRequestException(
+        `Cannot process payment for the ${booking.status} booking`,
+      );
     }
 
     const transactionId = this.generateTransactionId();
     const paymentAmount = booking.finalPrice ?? booking.totalPrice ?? 0;
 
-    
     if (paymentMethod === PaymentMethodEnum.wallet) {
-      await this.walletService.payForBooking(user._id, paymentAmount, booking._id.toString());
+      await this.walletService.payForBooking(
+        user._id,
+        paymentAmount,
+        booking._id.toString(),
+      );
 
       const payment = await this.paymentRepo.create({
         bookingId: booking._id,
@@ -145,7 +173,6 @@ export class PaymentService {
     throw new BadRequestException('Unsupported payment method');
   }
 
-
   async getMyPayments(user: UserDocument, query: QueryPaymentDto) {
     const { page = 1, limit = 10, status, paymentMethod } = query;
     const filter: any = { userId: user._id };
@@ -158,7 +185,13 @@ export class PaymentService {
       limit,
       search: filter,
       sort: { createdAt: -1 },
-      populate: [{ path: 'bookingId', select: 'bookingCode date startTime endTime totalPrice finalPrice status' }],
+      populate: [
+        {
+          path: 'bookingId',
+          select:
+            'bookingCode date startTime endTime totalPrice finalPrice status',
+        },
+      ],
     });
 
     return {
@@ -167,15 +200,20 @@ export class PaymentService {
     };
   }
 
-
-  async getVenuePayments(venueId: string, query: QueryPaymentDto, user: UserDocument) {
+  async getVenuePayments(
+    venueId: string,
+    query: QueryPaymentDto,
+    user: UserDocument,
+  ) {
     const venue = await this.venueRepo.findById(venueId);
     if (!venue) {
       throw new NotFoundException('Venue not found');
     }
 
     const { page = 1, limit = 10, status, paymentMethod } = query;
-    const bookings = await this.bookingRepo.find({ filter: { venueId: new Types.ObjectId(venueId) } });
+    const bookings = await this.bookingRepo.find({
+      filter: { venueId: new Types.ObjectId(venueId) },
+    });
     const bookingIds = bookings.map((b) => b._id);
 
     const filter: any = { bookingId: { $in: bookingIds } };
@@ -189,7 +227,10 @@ export class PaymentService {
       sort: { createdAt: -1 },
       populate: [
         { path: 'userId', select: 'userName email phone' },
-        { path: 'bookingId', select: 'bookingCode date startTime endTime finalPrice' },
+        {
+          path: 'bookingId',
+          select: 'bookingCode date startTime endTime finalPrice',
+        },
       ],
     });
 
@@ -200,7 +241,10 @@ export class PaymentService {
       },
     });
 
-    const totalRevenue = completedPayments.reduce((sum, p) => sum + (p.amount || 0) - (p.refundedAmount || 0), 0);
+    const totalRevenue = completedPayments.reduce(
+      (sum, p) => sum + (p.amount || 0) - (p.refundedAmount || 0),
+      0,
+    );
 
     return {
       message: 'Venue payments retrieved successfully',
@@ -209,14 +253,17 @@ export class PaymentService {
     };
   }
 
-
   async getPaymentById(id: string, user: UserDocument) {
     const payment = await this.paymentRepo.findOne({
       filter: { _id: id },
       options: {
         populate: [
           { path: 'userId', select: 'userName email phone' },
-          { path: 'bookingId', select: 'bookingCode date startTime endTime totalPrice finalPrice status' },
+          {
+            path: 'bookingId',
+            select:
+              'bookingCode date startTime endTime totalPrice finalPrice status',
+          },
         ],
       },
     });
@@ -227,12 +274,17 @@ export class PaymentService {
 
     // Authorization check
     const isOwner = payment.userId._id.toString() === user._id.toString();
-    const isStaffOrAdmin = [RoleEnum.admin, RoleEnum.superAdmin, RoleEnum.owner, RoleEnum.manager].includes(
-      user.role as RoleEnum,
-    );
+    const isStaffOrAdmin = [
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ].includes(user.role);
 
     if (!isOwner && !isStaffOrAdmin) {
-      throw new ForbiddenException('You are not authorized to view this payment');
+      throw new ForbiddenException(
+        'You are not authorized to view this payment',
+      );
     }
 
     return {
@@ -240,7 +292,6 @@ export class PaymentService {
       data: payment,
     };
   }
-
 
   async markCashPaid(id: string, body: MarkCashPaidDto, user: UserDocument) {
     const payment = await this.paymentRepo.findById(id);
@@ -275,7 +326,6 @@ export class PaymentService {
     };
   }
 
-
   async refundPayment(id: string, body: RefundPaymentDto, user: UserDocument) {
     const payment = await this.paymentRepo.findById(id);
     if (!payment) {
@@ -283,7 +333,9 @@ export class PaymentService {
     }
 
     if (payment.status !== PaymentStatusEnum.paid) {
-      throw new BadRequestException('Only completed/paid payments can be refunded');
+      throw new BadRequestException(
+        'Only completed/paid payments can be refunded',
+      );
     }
 
     const availableToRefund = payment.amount - (payment.refundedAmount || 0);
@@ -294,15 +346,22 @@ export class PaymentService {
     }
 
     if (refundAmount > availableToRefund) {
-      throw new BadRequestException(`Refund amount cannot exceed remaining refundable balance of ${availableToRefund}`);
+      throw new BadRequestException(
+        `Refund amount cannot exceed remaining refundable balance of ${availableToRefund}`,
+      );
     }
 
     // Credit refunded amount back to user's wallet
-    await this.walletService.refundBooking(payment.userId, refundAmount, payment.bookingId.toString());
+    await this.walletService.refundBooking(
+      payment.userId,
+      refundAmount,
+      payment.bookingId.toString(),
+    );
 
     const newRefundedTotal = (payment.refundedAmount || 0) + refundAmount;
     payment.refundedAmount = newRefundedTotal;
-    payment.refundReason = body.reason || 'Booking cancelled and refunded to wallet';
+    payment.refundReason =
+      body.reason || 'Booking cancelled and refunded to wallet';
 
     if (newRefundedTotal >= payment.amount) {
       payment.status = PaymentStatusEnum.refunded;
@@ -324,27 +383,42 @@ export class PaymentService {
       data: payment,
     };
   }
-  
+
   async handlePaymobWebhook(payload: any, hmacHeader?: string) {
-    const isValidHmac = this.paymobService.verifyWebhookHmac(payload, hmacHeader);
+    const isValidHmac = this.paymobService.verifyWebhookHmac(
+      payload,
+      hmacHeader,
+    );
     if (!isValidHmac) {
       throw new UnauthorizedException('Invalid Paymob HMAC signature');
     }
 
     const obj = payload?.obj || payload;
     const { success, pending, order } = obj || {};
-    const merchantOrderId = order?.merchant_order_id || obj?.merchant_order_id || obj?.order_id;
+    const merchantOrderId =
+      order?.merchant_order_id || obj?.merchant_order_id || obj?.order_id;
 
     if (!merchantOrderId) {
-      return { received: true, note: 'No merchant order ID in webhook payload' };
+      return {
+        received: true,
+        note: 'No merchant order ID in webhook payload',
+      };
     }
 
     let payment = await this.paymentRepo.findOne({
       filter: {
         $or: [
           { transactionId: merchantOrderId },
-          { _id: Types.ObjectId.isValid(merchantOrderId) ? merchantOrderId : undefined },
-          { bookingId: Types.ObjectId.isValid(merchantOrderId) ? merchantOrderId : undefined },
+          {
+            _id: Types.ObjectId.isValid(merchantOrderId)
+              ? merchantOrderId
+              : undefined,
+          },
+          {
+            bookingId: Types.ObjectId.isValid(merchantOrderId)
+              ? merchantOrderId
+              : undefined,
+          },
         ],
       },
     });
@@ -356,7 +430,11 @@ export class PaymentService {
       booking = await this.bookingRepo.findOne({
         filter: {
           $or: [
-            { _id: Types.ObjectId.isValid(merchantOrderId) ? merchantOrderId : undefined },
+            {
+              _id: Types.ObjectId.isValid(merchantOrderId)
+                ? merchantOrderId
+                : undefined,
+            },
             { bookingCode: merchantOrderId },
           ],
         },
@@ -373,23 +451,34 @@ export class PaymentService {
       }
     }
 
-    if(!payment || !booking) {
-      throw new NotFoundException(`Payment or booking record not found for order ${merchantOrderId}`);
+    if (!payment || !booking) {
+      throw new NotFoundException(
+        `Payment or booking record not found for order ${merchantOrderId}`,
+      );
     }
     if (payment.status === PaymentStatusEnum.paid) {
-      return { received: true, status: payment.status, note: 'Webhook already processed. Payment is marked as paid.' };
+      return {
+        received: true,
+        status: payment.status,
+        note: 'Webhook already processed. Payment is marked as paid.',
+      };
     }
     if (payment.status === PaymentStatusEnum.refunded) {
-      return { received: true, status: payment.status, note: 'Webhook already processed. Payment is refunded.' };
+      return {
+        received: true,
+        status: payment.status,
+        note: 'Webhook already processed. Payment is refunded.',
+      };
     }
 
     if (success && !pending) {
-
       // 2. LATE / EXPIRED / CANCELLED WEBHOOK HANDLING
       const now = new Date();
       const isBookingExpired =
         booking.status === BookingStatusEnum.expired ||
-        (booking.status === BookingStatusEnum.pending && booking.expiresAt && new Date(booking.expiresAt) <= now);
+        (booking.status === BookingStatusEnum.pending &&
+          booking.expiresAt &&
+          new Date(booking.expiresAt) <= now);
       const isBookingCancelled = booking.status === BookingStatusEnum.cancelled;
 
       if (isBookingExpired || isBookingCancelled) {
@@ -397,10 +486,15 @@ export class PaymentService {
         payment.status = PaymentStatusEnum.refunded;
         payment.paidAt = new Date();
         payment.refundedAmount = payment.amount;
-        payment.refundReason = 'Late payment received after booking hold expired or was cancelled. Automatically credited to wallet.';
+        payment.refundReason =
+          'Late payment received after booking hold expired or was cancelled. Automatically credited to wallet.';
         await payment.save();
 
-        await this.walletService.refundBooking(payment.userId, payment.amount, payment.bookingId.toString());
+        await this.walletService.refundBooking(
+          payment.userId,
+          payment.amount,
+          payment.bookingId.toString(),
+        );
 
         if (booking.status !== BookingStatusEnum.cancelled) {
           await this.bookingRepo.findByIdAndUpdate({

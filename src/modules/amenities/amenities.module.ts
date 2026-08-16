@@ -14,12 +14,7 @@ import customerUserModel from '../user/entities/customer-user.entity';
 import adminUserModel from '../user/entities/admin-user.entity';
 
 @Module({
-  imports: [
-    AmenitiesModel,
-    venueModel,
-    customerUserModel,
-    adminUserModel,
-  ],
+  imports: [AmenitiesModel, venueModel, customerUserModel, adminUserModel],
   controllers: [AmenitiesController],
   providers: [
     AmenitiesService,

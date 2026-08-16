@@ -1,26 +1,42 @@
 import {
-  BadRequestException, Injectable, NotFoundException
+  BadRequestException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { CouponEnum } from 'src/common/enums/couponEnum';
 import { CouponRepo } from 'src/common/reposetories/coupon-repo';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
-import { CreateCouponDto, UpdateCouponDto, ValidateCouponDto } from './dto/coupon.dto';
+import {
+  CreateCouponDto,
+  UpdateCouponDto,
+  ValidateCouponDto,
+} from './dto/coupon.dto';
 import { UserRepo } from 'src/common/reposetories/user-repo';
 import { calculateCouponDiscount } from './utils/coupon-calculator.utils';
-
 
 @Injectable()
 export class CouponService {
   constructor(
     private readonly couponRepo: CouponRepo,
-    private readonly userRepo: UserRepo
-  ) { }
+    private readonly userRepo: UserRepo,
+  ) {}
 
   async createCoupon(body: CreateCouponDto, user: AdminUserDocument) {
-    const { code, discountType, discount, startDate, endDate, maxUses, usesCount, isActive } = body
+    const {
+      code,
+      discountType,
+      discount,
+      startDate,
+      endDate,
+      maxUses,
+      usesCount,
+      isActive,
+    } = body;
 
-    if (await this.couponRepo.findOne({ filter: { code: code.toLowerCase() } })) {
-      throw new BadRequestException('Coupon already exists')
+    if (
+      await this.couponRepo.findOne({ filter: { code: code.toLowerCase() } })
+    ) {
+      throw new BadRequestException('Coupon already exists');
     }
 
     const coupon = await this.couponRepo.create({
@@ -33,65 +49,82 @@ export class CouponService {
       maxUses,
       usesCount,
       isActive,
-    })
+    });
 
-    return coupon
-
+    return coupon;
   }
 
-  async updateCoupon(id: string, body: UpdateCouponDto, user: AdminUserDocument) {
-    const { code, discountType, discount, startDate, endDate, maxUses, usesCount, isActive } = body
+  async updateCoupon(
+    id: string,
+    body: UpdateCouponDto,
+    user: AdminUserDocument,
+  ) {
+    const {
+      code,
+      discountType,
+      discount,
+      startDate,
+      endDate,
+      maxUses,
+      usesCount,
+      isActive,
+    } = body;
 
-    const coupon = await this.couponRepo.findOne({ filter: { _id: id, createdBy: user._id } })
+    const coupon = await this.couponRepo.findOne({
+      filter: { _id: id, createdBy: user._id },
+    });
     if (!coupon) {
-      throw new BadRequestException('Coupon not found')
+      throw new BadRequestException('Coupon not found');
     }
 
     if (code) {
-      coupon.code = code.toLowerCase()
+      coupon.code = code.toLowerCase();
     }
     if (discountType) {
-      coupon.discountType = discountType
+      coupon.discountType = discountType;
     }
     if (discount) {
-      coupon.discount = discount
+      coupon.discount = discount;
     }
     if (startDate) {
-      coupon.startDate = startDate
+      coupon.startDate = startDate;
     }
     if (endDate) {
-      coupon.endDate = endDate
+      coupon.endDate = endDate;
     }
     if (maxUses) {
-      coupon.maxUses = maxUses
+      coupon.maxUses = maxUses;
     }
     if (usesCount) {
-      coupon.usesCount = usesCount
+      coupon.usesCount = usesCount;
     }
     if (isActive !== undefined) {
-      coupon.isActive = isActive
+      coupon.isActive = isActive;
     }
 
-    await coupon.save()
-    return coupon
+    await coupon.save();
+    return coupon;
   }
 
-
   async deleteCoupon(id: string, user: AdminUserDocument) {
-    const coupon = await this.couponRepo.findOne({ filter: { _id: id, createdBy: user._id } })
+    const coupon = await this.couponRepo.findOne({
+      filter: { _id: id, createdBy: user._id },
+    });
     if (!coupon) {
-      throw new BadRequestException('Coupon not found')
+      throw new BadRequestException('Coupon not found');
     }
     await this.couponRepo.findOneAndDelete({
-      filter: { _id: id, createdBy: user._id }
-    })
-    return { message: "Coupon deleted successfully" }
+      filter: { _id: id, createdBy: user._id },
+    });
+    return { message: 'Coupon deleted successfully' };
   }
 
   async validateCoupon(body: ValidateCouponDto, user: AdminUserDocument) {
-    const { code, bookingAmount } = body
+    const { code, bookingAmount } = body;
 
-    const coupon = await this.couponRepo.findOne({ filter: { code: code.toUpperCase(), createdBy: user._id } });
+    const coupon = await this.couponRepo.findOne({
+      filter: { code: code.toUpperCase(), createdBy: user._id },
+    });
     if (!coupon) {
       throw new NotFoundException('Coupon code not found');
     }
@@ -101,7 +134,9 @@ export class CouponService {
     }
 
     if (coupon.usesCount >= coupon.maxUses) {
-      throw new BadRequestException('Coupon maximum usage limit has been reached');
+      throw new BadRequestException(
+        'Coupon maximum usage limit has been reached',
+      );
     }
 
     const now = new Date();
@@ -128,5 +163,4 @@ export class CouponService {
       finalPrice,
     };
   }
-
 }

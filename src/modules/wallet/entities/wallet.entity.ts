@@ -21,5 +21,3 @@ const walletModel = MongooseModule.forFeature([
 ]);
 
 export default walletModel;
-
-

@@ -3,7 +3,11 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { ResponseInterceptor } from '../src/common/interceptor/response';
-import { BookingStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from '../src/common/enums/bookingEnum';
+import {
+  BookingStatusEnum,
+  PaymentMethodEnum,
+  PaymentStatusEnum,
+} from '../src/common/enums/bookingEnum';
 import { CouponEnum } from '../src/common/enums/couponEnum';
 import { RoleEnum } from '../src/common/enums/userEnum';
 import { AdminUserRepo } from '../src/common/reposetories/admin-user-repo';
@@ -85,7 +89,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
     expect(adminToken).toBeDefined();
 
     // 3. Create Standard Test Venue
-    let venue = await venueRepo.findOne({ filter: { venueName: 'Production Audit Arena' } });
+    let venue = await venueRepo.findOne({
+      filter: { venueName: 'Production Audit Arena' },
+    });
     if (!venue) {
       venue = await venueRepo.create({
         venueName: 'Production Audit Arena',
@@ -103,13 +109,20 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
     } else {
       await venueRepo.findByIdAndUpdate({
         id: venue._id,
-        update: { isActive: true, startWorkingHours: 8, endWorkingHours: 23, defaultHourPrice: 100 },
+        update: {
+          isActive: true,
+          startWorkingHours: 8,
+          endWorkingHours: 23,
+          defaultHourPrice: 100,
+        },
       });
     }
     testVenueId = venue._id.toString();
 
     // 4. Custom Hour Prices Venue
-    let customVenue = await venueRepo.findOne({ filter: { venueName: 'Custom Pricing Production Arena' } });
+    let customVenue = await venueRepo.findOne({
+      filter: { venueName: 'Custom Pricing Production Arena' },
+    });
     if (!customVenue) {
       customVenue = await venueRepo.create({
         venueName: 'Custom Pricing Production Arena',
@@ -173,7 +186,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
   describe('A. Wallet Payment Atomicity & Invariant Proof', () => {
     it('should deduct wallet balance, confirm booking, and create transaction record atomically in a MongoDB transaction', async () => {
       // Set wallet balance to 500
-      let wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      let wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       if (!wallet) {
         wallet = await walletRepo.create({
           userId: new Types.ObjectId(adminUserId),
@@ -205,7 +220,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       expect(booking.finalPrice).toBe(200);
 
       // Verify wallet balance was exactly deducted to 300
-      const updatedWallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      const updatedWallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(updatedWallet?.balance).toBe(300);
     });
 
@@ -233,7 +250,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       expect(res.body.message).toContain('Insufficient wallet balance');
 
       // Balance unchanged
-      const wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      const wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(wallet?.balance).toBe(50);
 
       // Zero booking records created
@@ -249,9 +268,13 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       });
 
       // Inject failure on transaction record creation
-      jest.spyOn(walletTransactionRepo, 'create').mockImplementation(async () => {
-        throw new Error('INJECTED_DB_FAILURE: Failed to write transaction ledger document');
-      });
+      jest
+        .spyOn(walletTransactionRepo, 'create')
+        .mockImplementation(async () => {
+          throw new Error(
+            'INJECTED_DB_FAILURE: Failed to write transaction ledger document',
+          );
+        });
 
       const res = await request(app.getHttpServer())
         .post('/booking')
@@ -270,7 +293,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       jest.restoreAllMocks();
 
       // PROVE FINANCIAL INVARIANT: Wallet balance is 100% UNTOUCHED (500 EGP, NOT 400 EGP)
-      const wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      const wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(wallet?.balance).toBe(500);
 
       // PROVE NO ORPHANED BOOKING: Slot is NOT confirmed
@@ -293,9 +318,13 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       });
 
       // Inject failure on booking confirmation update
-      jest.spyOn(BookingRepo.prototype, 'findByIdAndUpdate').mockRejectedValueOnce(
-        new Error('INJECTED_DB_FAILURE: Booking confirmation status update failed'),
-      );
+      jest
+        .spyOn(BookingRepo.prototype, 'findByIdAndUpdate')
+        .mockRejectedValueOnce(
+          new Error(
+            'INJECTED_DB_FAILURE: Booking confirmation status update failed',
+          ),
+        );
 
       const res = await request(app.getHttpServer())
         .post('/booking')
@@ -314,7 +343,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       jest.restoreAllMocks();
 
       // PROVE FINANCIAL INVARIANT: Wallet balance is 100% RESTORED/UNTOUCHED (500 EGP)
-      const wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      const wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(wallet?.balance).toBe(500);
 
       // PROVE NO ORPHANED BOOKING CREATED
@@ -354,7 +385,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       jest
         .spyOn(CouponRepo.prototype, 'findOne')
         .mockResolvedValueOnce(coupon)
-        .mockRejectedValueOnce(new Error('INJECTED_DB_FAILURE: Commit phase database failure'));
+        .mockRejectedValueOnce(
+          new Error('INJECTED_DB_FAILURE: Commit phase database failure'),
+        );
 
       const res = await request(app.getHttpServer())
         .post('/booking')
@@ -371,7 +404,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       expect([400, 500]).toContain(res.status);
 
       // PROVE FINANCIAL INVARIANT: Wallet balance is 100% RESTORED/UNTOUCHED (500 EGP)
-      const wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      const wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(wallet?.balance).toBe(500);
 
       // PROVE NO ORPHANED BOOKING CREATED
@@ -418,7 +453,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       expect(booking1.status).toBe(BookingStatusEnum.confirmed);
 
       // Verify wallet balance is 400 (500 - 100)
-      let wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      let wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(wallet?.balance).toBe(400);
 
       // 2. Retry with same Idempotency-Key (simulating network timeout replay)
@@ -434,7 +471,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       expect(booking2.bookingCode).toBe(booking1.bookingCode);
 
       // 3. PROVE THAT WALLET WAS NOT DEDUCTED AGAIN
-      wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(wallet?.balance).toBe(400); // Still 400!
     });
 
@@ -480,11 +519,16 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       ]);
 
       // All responses should either succeed with 201/200 (replayed) or be safely rejected with 409
-      const successResponses = responses.filter((r) => [200, 201].includes(r.status));
+      const successResponses = responses.filter((r) =>
+        [200, 201].includes(r.status),
+      );
       expect(successResponses.length).toBeGreaterThanOrEqual(1);
 
       // Verify all successful responses reference the exact same booking ID
-      const firstBookingId = (successResponses[0].body?.data?.booking || successResponses[0].body?.booking)._id;
+      const firstBookingId = (
+        successResponses[0].body?.data?.booking ||
+        successResponses[0].body?.booking
+      )._id;
       for (const res of successResponses) {
         const b = res.body?.data?.booking || res.body?.booking;
         expect(b._id.toString()).toBe(firstBookingId.toString());
@@ -502,7 +546,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       expect(bookingCount.length).toBe(1);
 
       // PROVE WALLET CHARGED EXACTLY ONCE (500 - 100 = 400)
-      const wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      const wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(wallet?.balance).toBe(400);
     });
 
@@ -546,7 +592,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
         });
 
       expect(res2.status).toBe(409);
-      expect(res2.body.message).toContain('Idempotency key mismatch: cannot reuse the same key with a different request payload');
+      expect(res2.body.message).toContain(
+        'Idempotency key mismatch: cannot reuse the same key with a different request payload',
+      );
 
       // PROVE SECOND SLOT WAS NOT BOOKED
       const secondBooking = await bookingRepo.findOne({
@@ -560,7 +608,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       expect(secondBooking).toBeNull();
 
       // PROVE WALLET ONLY CHARGED FOR FIRST BOOKING (500 - 100 = 400)
-      const wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      const wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(wallet?.balance).toBe(400);
     });
 
@@ -615,7 +665,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       expect(booking2.bookingCode).toBe(booking1.bookingCode);
 
       // PROVE WALLET CHARGED ONLY ONCE (500 - 100 = 400, NOT 300)
-      const wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      const wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(wallet?.balance).toBe(400);
 
       // PROVE REDIS CACHE WAS SELF-HEALED FOR FUTURE RETRIES
@@ -652,16 +704,15 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
         bookingId: new Types.ObjectId(paymobBookingId),
         userId: new Types.ObjectId(adminUserId),
         amount: 200,
-        currency: 'EGP',
         paymentMethod: PaymentMethodEnum.paymob,
-        provider: 'paymob',
         transactionId: paymobTxnId,
         status: PaymentStatusEnum.unpaid,
       });
     });
 
     it('should process success webhook, confirm booking, and mark payment as paid', async () => {
-      const hmacSecret = process.env.PAYMOB_HMAC_SECRET || 'CF847A5A5927CEDDBC9DB35C1B0ABEA1';
+      const hmacSecret =
+        process.env.PAYMOB_HMAC_SECRET || 'CF847A5A5927CEDDBC9DB35C1B0ABEA1';
       const webhookPayload = {
         obj: {
           amount_cents: 20000,
@@ -710,7 +761,10 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       ].join('');
 
       const crypto = require('crypto');
-      const hmac = crypto.createHmac('sha512', hmacSecret).update(concatenated).digest('hex');
+      const hmac = crypto
+        .createHmac('sha512', hmacSecret)
+        .update(concatenated)
+        .digest('hex');
 
       const res = await request(app.getHttpServer())
         .post(`/payment/webhook/paymob?hmac=${hmac}`)
@@ -728,7 +782,8 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
     });
 
     it('should be idempotent on duplicate / retried success webhook', async () => {
-      const hmacSecret = process.env.PAYMOB_HMAC_SECRET || 'CF847A5A5927CEDDBC9DB35C1B0ABEA1';
+      const hmacSecret =
+        process.env.PAYMOB_HMAC_SECRET || 'CF847A5A5927CEDDBC9DB35C1B0ABEA1';
       const webhookPayload = {
         obj: {
           amount_cents: 20000,
@@ -777,7 +832,10 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       ].join('');
 
       const crypto = require('crypto');
-      const hmac = crypto.createHmac('sha512', hmacSecret).update(concatenated).digest('hex');
+      const hmac = crypto
+        .createHmac('sha512', hmacSecret)
+        .update(concatenated)
+        .digest('hex');
 
       // Resend identical success webhook
       const res = await request(app.getHttpServer())
@@ -795,7 +853,8 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
     });
 
     it('should NOT allow out-of-order failed webhook to downgrade an already paid payment', async () => {
-      const hmacSecret = process.env.PAYMOB_HMAC_SECRET || 'CF847A5A5927CEDDBC9DB35C1B0ABEA1';
+      const hmacSecret =
+        process.env.PAYMOB_HMAC_SECRET || 'CF847A5A5927CEDDBC9DB35C1B0ABEA1';
       const failedWebhook = {
         obj: {
           amount_cents: 20000,
@@ -844,7 +903,10 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       ].join('');
 
       const crypto = require('crypto');
-      const hmac = crypto.createHmac('sha512', hmacSecret).update(concatenated).digest('hex');
+      const hmac = crypto
+        .createHmac('sha512', hmacSecret)
+        .update(concatenated)
+        .digest('hex');
 
       const res = await request(app.getHttpServer())
         .post(`/payment/webhook/paymob?hmac=${hmac}`)
@@ -853,12 +915,15 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       expect(res.status).toBe(201);
 
       // Payment remains paid in DB
-      const payment = await paymentRepo.findOne({ filter: { transactionId: paymobTxnId } });
+      const payment = await paymentRepo.findOne({
+        filter: { transactionId: paymobTxnId },
+      });
       expect(payment?.status).toBe(PaymentStatusEnum.paid);
     });
 
     it('should auto-refund late success webhook arriving after booking hold expired', async () => {
-      const hmacSecret = process.env.PAYMOB_HMAC_SECRET || 'CF847A5A5927CEDDBC9DB35C1B0ABEA1';
+      const hmacSecret =
+        process.env.PAYMOB_HMAC_SECRET || 'CF847A5A5927CEDDBC9DB35C1B0ABEA1';
 
       // 1. Create a booking that expired 10 minutes ago
       const expiredBooking = await bookingRepo.create({
@@ -882,15 +947,15 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
         bookingId: expiredBooking._id,
         userId: new Types.ObjectId(adminUserId),
         amount: 200,
-        currency: 'EGP',
         paymentMethod: PaymentMethodEnum.paymob,
-        provider: 'paymob',
         transactionId: lateTxnId,
         status: PaymentStatusEnum.unpaid,
       });
 
       // Record wallet balance before late webhook
-      let wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      let wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       const balanceBefore = wallet?.balance || 0;
 
       // 2. Late success webhook arrives
@@ -942,7 +1007,10 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       ].join('');
 
       const crypto = require('crypto');
-      const hmac = crypto.createHmac('sha512', hmacSecret).update(concatenated).digest('hex');
+      const hmac = crypto
+        .createHmac('sha512', hmacSecret)
+        .update(concatenated)
+        .digest('hex');
 
       const res = await request(app.getHttpServer())
         .post(`/payment/webhook/paymob?hmac=${hmac}`)
@@ -954,7 +1022,9 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
       expect(data?.note).toContain('refunded to user wallet');
 
       // 3. Verify user wallet received full 200 EGP refund
-      wallet = await walletRepo.findOne({ filter: { userId: new Types.ObjectId(adminUserId) } });
+      wallet = await walletRepo.findOne({
+        filter: { userId: new Types.ObjectId(adminUserId) },
+      });
       expect(wallet?.balance).toBe(balanceBefore + 200);
 
       // 4. Verify booking was NOT revived as confirmed

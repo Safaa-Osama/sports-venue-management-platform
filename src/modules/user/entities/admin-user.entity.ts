@@ -15,7 +15,13 @@ export class AdminUser {
   @Prop({ type: String, required: true })
   userName: string;
 
-  @Prop({ type: String, required: true, unique: true, index: true, lowercase: true })
+  @Prop({
+    type: String,
+    required: true,
+    unique: true,
+    index: true,
+    lowercase: true,
+  })
   email: string;
 
   @Prop({ type: String, required: true, select: false })

@@ -1,7 +1,14 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
 import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
-import { UpdateAdminUserDto, UpdateCustomerUserDto } from './dto/update-user.dto';
+import {
+  UpdateAdminUserDto,
+  UpdateCustomerUserDto,
+} from './dto/update-user.dto';
 import { Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import { S3Service } from 'src/common/services/s3Service/s3.service';
@@ -57,7 +64,9 @@ export class UserService {
         filter: { phone: updateDto.phone, _id: { $ne: objectId } },
       });
       if (existing) {
-        throw new BadRequestException('Customer user with this phone number already exists');
+        throw new BadRequestException(
+          'Customer user with this phone number already exists',
+        );
       }
     }
 
@@ -83,7 +92,7 @@ export class UserService {
 
       // If update succeeded and new avatar was uploaded, delete old avatar if existing
       if (avatar && customer.avatar && newlyUploadedImage) {
-        await this.s3Service.deleteFile(customer.avatar as string).catch(() => {});
+        await this.s3Service.deleteFile(customer.avatar).catch(() => {});
       }
 
       return updatedCustomer;
@@ -117,7 +126,9 @@ export class UserService {
           filter: { email: normalizedEmail, _id: { $ne: objectId } },
         });
         if (existing) {
-          throw new BadRequestException('Admin user with this email already exists');
+          throw new BadRequestException(
+            'Admin user with this email already exists',
+          );
         }
       }
       updatePayload.email = normalizedEmail;
@@ -136,7 +147,9 @@ export class UserService {
       throw new NotFoundException('Admin user not found');
     }
 
-    const adminObj = updatedAdmin.toObject ? updatedAdmin.toObject() : { ...updatedAdmin };
+    const adminObj = updatedAdmin.toObject
+      ? updatedAdmin.toObject()
+      : { ...updatedAdmin };
     const { password, ...adminWithoutPassword } = adminObj as any;
 
     return adminWithoutPassword;

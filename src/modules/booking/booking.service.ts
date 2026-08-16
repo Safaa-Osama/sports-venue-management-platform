@@ -1,9 +1,19 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException, } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ClientSession, Connection, Types } from 'mongoose';
 import * as QRCode from 'qrcode';
-import { BookingStatusEnum, PaymentMethodEnum, PaymentStatusEnum } from 'src/common/enums/bookingEnum';
+import {
+  BookingStatusEnum,
+  PaymentMethodEnum,
+  PaymentStatusEnum,
+} from 'src/common/enums/bookingEnum';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { BookingRepo } from 'src/common/reposetories/booking-repo';
 import { CouponRepo } from 'src/common/reposetories/coupon-repo';
@@ -13,12 +23,16 @@ import { calculateCouponDiscount } from '../coupon/utils/coupon-calculator.utils
 import { UserDocument } from '../user/entities/user.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { BookingGateway } from './booking.gateway';
-import { CreateBookingDto, CreatePaymentDto, QueryBookingDto, UpdateBookingStatusDto, } from './dto/booking.dto';
+import {
+  CreateBookingDto,
+  CreatePaymentDto,
+  QueryBookingDto,
+  UpdateBookingStatusDto,
+} from './dto/booking.dto';
 import * as crypto from 'crypto';
 
 const HOLD_DURATION_MINUTES = 15;
 const CANCELLATION_DEADLINE_HOURS = 24;
-
 
 @Injectable()
 export class BookingService {
@@ -30,7 +44,7 @@ export class BookingService {
     private readonly bookingGateway: BookingGateway,
     private readonly redisService: RedisService,
     @InjectConnection() private readonly connection: Connection,
-  ) { }
+  ) {}
 
   private computeRequestFingerprint(body: CreateBookingDto): string {
     const canonical = {
@@ -41,7 +55,10 @@ export class BookingService {
       couponCode: body.couponCode ? body.couponCode.trim().toUpperCase() : null,
       paymentMethod: body.paymentMethod,
     };
-    return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+    return crypto
+      .createHash('sha256')
+      .update(JSON.stringify(canonical))
+      .digest('hex');
   }
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -66,14 +83,22 @@ export class BookingService {
     }
   }
 
-
-  async createBooking(body: CreateBookingDto, user: UserDocument, idempotencyKey?: string) {
-    const { venueId, date, startTime, endTime, couponCode, paymentMethod } = body;
+  async createBooking(
+    body: CreateBookingDto,
+    user: UserDocument,
+    idempotencyKey?: string,
+  ) {
+    const { venueId, date, startTime, endTime, couponCode, paymentMethod } =
+      body;
     const requestHash = this.computeRequestFingerprint(body);
     const trimmedIdemKey = idempotencyKey ? idempotencyKey.trim() : undefined;
 
-    const effectiveIdemKey = trimmedIdemKey ? `idem::req::${user._id.toString()}::${trimmedIdemKey}` : undefined;
-    const idemLockKey = trimmedIdemKey ? `idem::lock::${user._id.toString()}::${trimmedIdemKey}` : undefined;
+    const effectiveIdemKey = trimmedIdemKey
+      ? `idem::req::${user._id.toString()}::${trimmedIdemKey}`
+      : undefined;
+    const idemLockKey = trimmedIdemKey
+      ? `idem::lock::${user._id.toString()}::${trimmedIdemKey}`
+      : undefined;
 
     if (effectiveIdemKey) {
       const cached = await this.redisService.getValue(effectiveIdemKey);
@@ -100,7 +125,10 @@ export class BookingService {
       });
 
       if (existingIdemBooking) {
-        if (existingIdemBooking.requestHash && existingIdemBooking.requestHash !== requestHash) {
+        if (
+          existingIdemBooking.requestHash &&
+          existingIdemBooking.requestHash !== requestHash
+        ) {
           throw new ConflictException(
             'Idempotency key mismatch: cannot reuse the same key with a different request payload',
           );
@@ -111,7 +139,8 @@ export class BookingService {
           payment: {
             status: existingIdemBooking.paymentStatus,
             paymentMethod: existingIdemBooking.paymentMethod,
-            amount: existingIdemBooking.finalPrice ?? existingIdemBooking.totalPrice,
+            amount:
+              existingIdemBooking.finalPrice ?? existingIdemBooking.totalPrice,
           },
         };
 
@@ -166,7 +195,10 @@ export class BookingService {
         throw new BadRequestException('Venue is currently inactive');
       }
 
-      if (startTime < venue.startWorkingHours || endTime > venue.endWorkingHours) {
+      if (
+        startTime < venue.startWorkingHours ||
+        endTime > venue.endWorkingHours
+      ) {
         throw new BadRequestException(
           `Booking hours must be between venue operating hours (${venue.startWorkingHours}:00 - ${venue.endWorkingHours}:00)`,
         );
@@ -199,22 +231,28 @@ export class BookingService {
           filter: {
             venueId: venue._id,
             date: { $gte: startOfDay, $lte: endOfDay },
-            status: { $in: [BookingStatusEnum.confirmed, BookingStatusEnum.pending] },
-            $or: [
-              { startTime: { $lt: endTime }, endTime: { $gt: startTime } },
-            ],
+            status: {
+              $in: [BookingStatusEnum.confirmed, BookingStatusEnum.pending],
+            },
+            $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
           },
         });
 
         const validOverlaps = existingBookings.filter((b) => {
-          if (b.status === BookingStatusEnum.pending && b.expiresAt && new Date(b.expiresAt) <= now) {
+          if (
+            b.status === BookingStatusEnum.pending &&
+            b.expiresAt &&
+            new Date(b.expiresAt) <= now
+          ) {
             return false;
           }
           return true;
         });
 
         if (validOverlaps.length > 0) {
-          throw new ConflictException('Selected time slot is already booked or reserved for this venue');
+          throw new ConflictException(
+            'Selected time slot is already booked or reserved for this venue',
+          );
         }
 
         let totalPrice = 0;
@@ -222,8 +260,14 @@ export class BookingService {
 
         if (venue.customHourPrices && venue.customHourPrices.length > 0) {
           for (let hour = startTime; hour < endTime; hour++) {
-            const customPrice = venue.customHourPrices.find((c) => c.hour === hour);
-            if (customPrice && typeof customPrice.pricePerHour === 'number' && customPrice.pricePerHour >= 0) {
+            const customPrice = venue.customHourPrices.find(
+              (c) => c.hour === hour,
+            );
+            if (
+              customPrice &&
+              typeof customPrice.pricePerHour === 'number' &&
+              customPrice.pricePerHour >= 0
+            ) {
               totalPrice += customPrice.pricePerHour;
             } else {
               totalPrice += venue.defaultHourPrice;
@@ -235,7 +279,9 @@ export class BookingService {
 
         let discountAmount = 0;
         let finalPrice = totalPrice;
-        const normalizedCouponCode = couponCode ? couponCode.trim().toUpperCase() : undefined;
+        const normalizedCouponCode = couponCode
+          ? couponCode.trim().toUpperCase()
+          : undefined;
 
         if (normalizedCouponCode) {
           const coupon = await this.couponRepo.findOne({
@@ -254,11 +300,18 @@ export class BookingService {
             throw new BadRequestException('Coupon maximum usage limit reached');
           }
 
-          if (now < new Date(coupon.startDate) || now > new Date(coupon.endDate)) {
+          if (
+            now < new Date(coupon.startDate) ||
+            now > new Date(coupon.endDate)
+          ) {
             throw new BadRequestException('Coupon is expired or not valid yet');
           }
 
-          const discountResult = calculateCouponDiscount(coupon.discountType, coupon.discount, totalPrice);
+          const discountResult = calculateCouponDiscount(
+            coupon.discountType,
+            coupon.discount,
+            totalPrice,
+          );
           discountAmount = discountResult.discountAmount;
           finalPrice = discountResult.finalPrice;
         }
@@ -272,7 +325,9 @@ export class BookingService {
           }
         }
 
-        const expiresAt = new Date(Date.now() + HOLD_DURATION_MINUTES * 60 * 1000);
+        const expiresAt = new Date(
+          Date.now() + HOLD_DURATION_MINUTES * 60 * 1000,
+        );
 
         const bookingCode = `BK-${Date.now().toString(36).toUpperCase()}-${Math.random()
           .toString(36)
@@ -312,7 +367,11 @@ export class BookingService {
 
         this.bookingGateway.emitSlotLocked(booking);
         if (venue.createdBy) {
-          this.bookingGateway.emitOwnerNotification(venue.createdBy.toString(), booking, 'NEW_PENDING_BOOKING');
+          this.bookingGateway.emitOwnerNotification(
+            venue.createdBy.toString(),
+            booking,
+            'NEW_PENDING_BOOKING',
+          );
         }
 
         let paymentResult: any;
@@ -360,9 +419,17 @@ export class BookingService {
     }
   }
 
-
-  private async payForBookingCompensating(user: UserDocument, amountToPay: number, booking: any, activeCouponCode?: string,) {
-    await this.walletService.payForBooking(user._id, amountToPay, booking._id.toString());
+  private async payForBookingCompensating(
+    user: UserDocument,
+    amountToPay: number,
+    booking: any,
+    activeCouponCode?: string,
+  ) {
+    await this.walletService.payForBooking(
+      user._id,
+      amountToPay,
+      booking._id.toString(),
+    );
 
     let updatedBooking: any;
     try {
@@ -377,24 +444,33 @@ export class BookingService {
       });
 
       if (activeCouponCode) {
-        const coupon = await this.couponRepo.findOne({ filter: { code: activeCouponCode } });
+        const coupon = await this.couponRepo.findOne({
+          filter: { code: activeCouponCode },
+        });
         if (coupon) {
           coupon.usesCount += 1;
           await coupon.save();
         }
       }
     } catch (confirmError) {
-      await this.walletService.refundBooking(user._id, amountToPay, booking._id.toString());
+      await this.walletService.refundBooking(
+        user._id,
+        amountToPay,
+        booking._id.toString(),
+      );
       throw confirmError;
     }
 
-    this.bookingGateway.emitBookingConfirmed(updatedBooking!);
+    this.bookingGateway.emitBookingConfirmed(updatedBooking);
     return updatedBooking;
   }
 
-  async payBooking(bookingId: string, body: CreatePaymentDto, user: UserDocument) {
+  async payBooking(
+    bookingId: string,
+    body: CreatePaymentDto,
+    user: UserDocument,
+  ) {
     const { paymentMethod, couponCode } = body;
-
 
     const booking = await this.bookingRepo.findById(bookingId);
     if (!booking) {
@@ -402,11 +478,18 @@ export class BookingService {
     }
 
     if (booking.userId.toString() !== user._id.toString()) {
-      throw new UnauthorizedException('You do not have permission to pay for this booking');
+      throw new UnauthorizedException(
+        'You do not have permission to pay for this booking',
+      );
     }
 
-    if (booking.status === BookingStatusEnum.cancelled || booking.status === BookingStatusEnum.expired) {
-      throw new BadRequestException('Booking is expired or cancelled and cannot be paid');
+    if (
+      booking.status === BookingStatusEnum.cancelled ||
+      booking.status === BookingStatusEnum.expired
+    ) {
+      throw new BadRequestException(
+        'Booking is expired or cancelled and cannot be paid',
+      );
     }
 
     if (booking.paymentStatus === PaymentStatusEnum.paid) {
@@ -414,17 +497,27 @@ export class BookingService {
     }
 
     const now = new Date();
-    if (booking.expiresAt && new Date(booking.expiresAt) <= now && booking.status === BookingStatusEnum.pending) {
+    if (
+      booking.expiresAt &&
+      new Date(booking.expiresAt) <= now &&
+      booking.status === BookingStatusEnum.pending
+    ) {
       await this.bookingRepo.findByIdAndUpdate({
         id: booking._id,
         update: { status: BookingStatusEnum.expired },
       });
       this.bookingGateway.emitSlotReleased(booking);
-      throw new BadRequestException('Booking hold has expired. Please create a new booking request.');
+      throw new BadRequestException(
+        'Booking hold has expired. Please create a new booking request.',
+      );
     }
 
     const amountToPay = booking.finalPrice ?? booking.totalPrice;
-    const activeCouponCode = couponCode ? couponCode.trim().toUpperCase() : (booking.couponCode ? booking.couponCode.trim().toUpperCase() : undefined);
+    const activeCouponCode = couponCode
+      ? couponCode.trim().toUpperCase()
+      : booking.couponCode
+        ? booking.couponCode.trim().toUpperCase()
+        : undefined;
 
     if (paymentMethod === PaymentMethodEnum.wallet) {
       let session: ClientSession | null = null;
@@ -437,7 +530,12 @@ export class BookingService {
 
       if (session) {
         try {
-          await this.walletService.payForBooking(user._id, amountToPay, booking._id.toString(), session);
+          await this.walletService.payForBooking(
+            user._id,
+            amountToPay,
+            booking._id.toString(),
+            session,
+          );
 
           const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
             id: booking._id,
@@ -474,7 +572,12 @@ export class BookingService {
             txnError?.message?.includes('Transaction numbers');
 
           if (isReplicaSetError) {
-            return await this.payForBookingCompensating(user, amountToPay, booking, activeCouponCode);
+            return await this.payForBookingCompensating(
+              user,
+              amountToPay,
+              booking,
+              activeCouponCode,
+            );
           }
           throw txnError;
         } finally {
@@ -486,10 +589,15 @@ export class BookingService {
           } catch {}
         }
       } else {
-        return await this.payForBookingCompensating(user, amountToPay, booking, activeCouponCode);
+        return await this.payForBookingCompensating(
+          user,
+          amountToPay,
+          booking,
+          activeCouponCode,
+        );
       }
     }
- 
+
     if (paymentMethod === PaymentMethodEnum.cash) {
       const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
         id: booking._id,
@@ -502,7 +610,9 @@ export class BookingService {
       });
 
       if (activeCouponCode) {
-        const coupon = await this.couponRepo.findOne({ filter: { code: activeCouponCode } });
+        const coupon = await this.couponRepo.findOne({
+          filter: { code: activeCouponCode },
+        });
         if (coupon) {
           coupon.usesCount += 1;
           await coupon.save();
@@ -528,7 +638,7 @@ export class BookingService {
 
   async getMyBookings(user: UserDocument, query: QueryBookingDto) {
     const { page, limit, status, paymentStatus, date } = query;
-    let search: Types.ObjectId | any = { userId: user._id } ;
+    const search: Types.ObjectId | any = { userId: user._id };
 
     if (status) {
       search.status = status;
@@ -550,7 +660,10 @@ export class BookingService {
       limit,
       search,
       sort: { createdAt: -1 },
-      populate: { path: 'venueId', select: 'venueName address images defaultHourPrice' },
+      populate: {
+        path: 'venueId',
+        select: 'venueName address images defaultHourPrice',
+      },
     });
   }
 
@@ -602,13 +715,20 @@ export class BookingService {
       throw new NotFoundException('Booking not found');
     }
 
-    const isOwner = booking.userId?._id?.toString() === user._id.toString() || booking.userId?.toString() === user._id.toString();
-    const isStaffOrAdmin = [RoleEnum.admin, RoleEnum.superAdmin, RoleEnum.owner, RoleEnum.manager].includes(
-      user.role,
-    );
+    const isOwner =
+      booking.userId?._id?.toString() === user._id.toString() ||
+      booking.userId?.toString() === user._id.toString();
+    const isStaffOrAdmin = [
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ].includes(user.role);
 
     if (!isOwner && !isStaffOrAdmin) {
-      throw new UnauthorizedException('You do not have permission to view this booking');
+      throw new UnauthorizedException(
+        'You do not have permission to view this booking',
+      );
     }
 
     return booking;
@@ -621,12 +741,17 @@ export class BookingService {
     }
 
     const isOwner = booking.userId.toString() === user._id.toString();
-    const isStaffOrAdmin = [RoleEnum.admin, RoleEnum.superAdmin, RoleEnum.owner, RoleEnum.manager].includes(
-      user.role,
-    );
+    const isStaffOrAdmin = [
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ].includes(user.role);
 
     if (!isOwner && !isStaffOrAdmin) {
-      throw new UnauthorizedException('You do not have permission to cancel this booking');
+      throw new UnauthorizedException(
+        'You do not have permission to cancel this booking',
+      );
     }
 
     if (booking.status === BookingStatusEnum.cancelled) {
@@ -640,19 +765,31 @@ export class BookingService {
     const bookingDateTime = new Date(booking.date);
     bookingDateTime.setHours(booking.startTime, 0, 0, 0);
     const now = new Date();
-    const hoursDifference = (bookingDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+    const hoursDifference =
+      (bookingDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
 
     if (hoursDifference < CANCELLATION_DEADLINE_HOURS && !isStaffOrAdmin) {
-      throw new BadRequestException(`Bookings can only be cancelled at least ${CANCELLATION_DEADLINE_HOURS} hours prior to slot time.`);
+      throw new BadRequestException(
+        `Bookings can only be cancelled at least ${CANCELLATION_DEADLINE_HOURS} hours prior to slot time.`,
+      );
     }
 
-    if (booking.paymentStatus === PaymentStatusEnum.paid && booking.paymentMethod === PaymentMethodEnum.wallet) {
+    if (
+      booking.paymentStatus === PaymentStatusEnum.paid &&
+      booking.paymentMethod === PaymentMethodEnum.wallet
+    ) {
       const refundAmount = booking.finalPrice ?? booking.totalPrice;
       const session = await this.connection.startSession();
       session.startTransaction();
 
       try {
-        await this.walletService.refundBooking(booking.userId, refundAmount, booking._id.toString(), undefined, session);
+        await this.walletService.refundBooking(
+          booking.userId,
+          refundAmount,
+          booking._id.toString(),
+          undefined,
+          session,
+        );
 
         const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
           id: booking._id,
@@ -692,7 +829,8 @@ export class BookingService {
 
     const updateData: any = {};
     if (updateDto.status) updateData.status = updateDto.status;
-    if (updateDto.paymentStatus) updateData.paymentStatus = updateDto.paymentStatus;
+    if (updateDto.paymentStatus)
+      updateData.paymentStatus = updateDto.paymentStatus;
 
     if (Object.keys(updateData).length === 0) {
       throw new BadRequestException('No status fields provided to update');
@@ -703,7 +841,10 @@ export class BookingService {
       update: updateData,
     });
 
-    if (updateDto.status === BookingStatusEnum.cancelled || updateDto.status === BookingStatusEnum.expired) {
+    if (
+      updateDto.status === BookingStatusEnum.cancelled ||
+      updateDto.status === BookingStatusEnum.expired
+    ) {
       this.bookingGateway.emitSlotReleased(updatedBooking);
     } else if (updateDto.status === BookingStatusEnum.confirmed) {
       this.bookingGateway.emitBookingConfirmed(updatedBooking);
@@ -728,7 +869,9 @@ export class BookingService {
     }
 
     return {
-      valid: booking.status !== BookingStatusEnum.cancelled && booking.status !== BookingStatusEnum.expired,
+      valid:
+        booking.status !== BookingStatusEnum.cancelled &&
+        booking.status !== BookingStatusEnum.expired,
       booking,
     };
   }

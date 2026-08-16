@@ -4,9 +4,19 @@ import { type RedisClientType } from 'redis';
 
 @Injectable()
 export class RedisService {
-  constructor(@Inject('REDIS_CLIENT') protected readonly client: RedisClientType,) { }
+  constructor(
+    @Inject('REDIS_CLIENT') protected readonly client: RedisClientType,
+  ) {}
 
-  async setValue({ key, value, ttl, }: { key: string; value: string | object; ttl?: number; }): Promise<void> {
+  async setValue({
+    key,
+    value,
+    ttl,
+  }: {
+    key: string;
+    value: string | object;
+    ttl?: number;
+  }): Promise<void> {
     const data = typeof value === 'string' ? value : JSON.stringify(value);
     if (ttl) {
       await this.client.set(key, data, { EX: ttl });
@@ -15,17 +25,17 @@ export class RedisService {
     }
   }
 
-   getValue = async (key: string) => {
-        try {
-            try {
-                return JSON.parse(await this.client.get(key) as string)
-            } catch (error) {
-                return await this.client.get(key)
-            }
-        } catch (error) {
-            console.log("error to get operation", error)
-        }
+  getValue = async (key: string) => {
+    try {
+      try {
+        return JSON.parse((await this.client.get(key)) as string);
+      } catch (error) {
+        return await this.client.get(key);
+      }
+    } catch (error) {
+      console.log('error to get operation', error);
     }
+  };
 
   async update({
     key,
@@ -89,7 +99,13 @@ export class RedisService {
     }
   }
 
-  revokedKey({ userId, jti }: { userId: Types.ObjectId | string; jti: string }): string {
+  revokedKey({
+    userId,
+    jti,
+  }: {
+    userId: Types.ObjectId | string;
+    jti: string;
+  }): string {
     return `revoke-token::${userId}::${jti}`;
   }
 
@@ -119,7 +135,10 @@ export class RedisService {
 
   async acquireLock(key: string, ttlSeconds: number = 5): Promise<boolean> {
     try {
-      const res = await this.client.set(key, 'locked', { NX: true, EX: ttlSeconds });
+      const res = await this.client.set(key, 'locked', {
+        NX: true,
+        EX: ttlSeconds,
+      });
       return res === 'OK';
     } catch {
       // If redis is unavailable or errors, return true so system gracefully falls back

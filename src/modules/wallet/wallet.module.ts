@@ -16,7 +16,13 @@ import adminUserModel from '../user/entities/admin-user.entity';
 import customerUserModel from '../user/entities/customer-user.entity';
 
 @Module({
-  imports: [walletModel, walletTransactionModel, userModel, adminUserModel, customerUserModel],
+  imports: [
+    walletModel,
+    walletTransactionModel,
+    userModel,
+    adminUserModel,
+    customerUserModel,
+  ],
   controllers: [WalletController],
   providers: [
     WalletService,

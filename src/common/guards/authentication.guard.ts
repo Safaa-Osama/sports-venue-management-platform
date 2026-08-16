@@ -1,10 +1,15 @@
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { TokenService } from '../services/token/tokenService';
 import { IRequest } from 'src/utilis/types/request.type';
 
 @Injectable()
 export class AuthenticationGuard implements CanActivate {
-  constructor(private readonly tokenService: TokenService) { }
+  constructor(private readonly tokenService: TokenService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     let req: IRequest | any;
@@ -23,12 +28,13 @@ export class AuthenticationGuard implements CanActivate {
     if (!authorization) {
       throw new UnauthorizedException('Authorization token is required');
     }
-    const [prefix, token] = authorization.split(" ");
+    const [prefix, token] = authorization.split(' ');
     if (!token || !prefix) {
-      throw new UnauthorizedException("Invalid authorization token");
+      throw new UnauthorizedException('Invalid authorization token');
     }
 
-    const { user, decoded } = await this.tokenService.authenticateToken_fetchUser(token);
+    const { user, decoded } =
+      await this.tokenService.authenticateToken_fetchUser(token);
 
     req.user = user;
     req.decoded = decoded;

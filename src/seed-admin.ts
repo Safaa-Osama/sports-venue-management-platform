@@ -11,7 +11,9 @@ async function seedSuperAdmin() {
   const adminEmail = process.env.INITIAL_ADMIN_EMAIL || 'admin@venue.com';
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'Admin@123456';
 
-  const existing = await adminUserRepo.findOne({ filter: { email: adminEmail } });
+  const existing = await adminUserRepo.findOne({
+    filter: { email: adminEmail },
+  });
 
   if (existing) {
     console.log(`[Seed] Super Admin already exists with email: ${adminEmail}`);
@@ -23,7 +25,9 @@ async function seedSuperAdmin() {
       password: hashedPassword,
       role: RoleEnum.superAdmin,
     });
-    console.log(`[Seed] Successfully created Super Admin: ${adminEmail} (password: ${adminPassword})`);
+    console.log(
+      `[Seed] Successfully created Super Admin: ${adminEmail} (password: ${adminPassword})`,
+    );
   }
 
   await app.close();

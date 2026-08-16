@@ -32,9 +32,13 @@ import { AmenitiesModule } from './modules/amenities/amenities.module';
       onConnectionCreate: (connection: Connection) => {
         connection.on('connected', () => console.log('database connected'));
         connection.on('open', () => console.log('database open'));
-        connection.on('disconnected', () => console.log('database disconnected'));
+        connection.on('disconnected', () =>
+          console.log('database disconnected'),
+        );
         connection.on('reconnected', () => console.log('database reconnected'));
-        connection.on('disconnecting', () => console.log('database disconnecting'));
+        connection.on('disconnecting', () =>
+          console.log('database disconnecting'),
+        );
 
         return connection;
       },
