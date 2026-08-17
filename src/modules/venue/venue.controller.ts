@@ -2,9 +2,11 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Param,
   Patch,
   Post,
+  Query,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
@@ -24,16 +26,55 @@ import { MulterEnum, StoreEnum } from 'src/common/enums/multerEnum';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { multer_cloud } from 'src/common/interceptor/multer';
 import type { AdminUserDocument } from '../user/entities/admin-user.entity';
-import { CreateVenueDto, UpdateteVenueDto } from './dto/venue.dto';
+import {
+  CreateVenueDto,
+  GetVenuesQueryDto,
+  UpdateVenueDto,
+} from './dto/venue.dto';
 import { VenueService } from './venue.service';
 
 @ApiTags('Venues')
-@ApiBearerAuth('JWT-auth')
 @Controller('venue')
 export class VenueController {
   constructor(private readonly venueService: VenueService) {}
 
+  @Get()
+  @ApiOperation({
+    summary: 'List All Active Sports Venues',
+    description:
+      'Retrieves all active venues with name, address, sportsType, amenities, defaultHourPrice, and cover photos. Supports optional filtering by sportsType.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of active venues retrieved successfully',
+  })
+  async getAllVenues(@Query() query: GetVenuesQueryDto) {
+    return this.venueService.getAllVenues(query);
+  }
+
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Get Sports Venue Details by ID',
+    description:
+      'Retrieves comprehensive details of a specific venue including operating hours, pricing, amenities, and location.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Venue MongoDB ID',
+    example: '64e8b0a1f2b4c10012345678',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Venue details retrieved successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Invalid venue ID format' })
+  @ApiResponse({ status: 404, description: 'Venue not found' })
+  async getVenueById(@Param('id') id: string) {
+    return this.venueService.getVenueById(id);
+  }
+
   @Post()
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Create Sports Venue (Admin / SuperAdmin)',
     description:
@@ -64,17 +105,37 @@ export class VenueController {
           example: ['Football', 'Padel'],
           description: 'Sports supported at this venue',
         },
-        locationAlt: { type: 'number', example: 30.0444, description: 'Latitude' },
-        locationLang: { type: 'number', example: 31.2357, description: 'Longitude' },
+        locationAlt: {
+          type: 'number',
+          example: 30.0444,
+          description: 'Latitude',
+        },
+        locationLang: {
+          type: 'number',
+          example: 31.2357,
+          description: 'Longitude',
+        },
         amenities: {
           type: 'array',
           items: { type: 'string' },
           example: ['Parking', 'Shower', 'WiFi'],
           description: 'List of amenities',
         },
-        startWorkingHours: { type: 'number', example: 8, description: 'Opening hour (0-23)' },
-        endWorkingHours: { type: 'number', example: 24, description: 'Closing hour (1-24)' },
-        defaultHourPrice: { type: 'number', example: 250, description: 'Base price per hour' },
+        startWorkingHours: {
+          type: 'number',
+          example: 8,
+          description: 'Opening hour (0-23)',
+        },
+        endWorkingHours: {
+          type: 'number',
+          example: 24,
+          description: 'Closing hour (1-24)',
+        },
+        defaultHourPrice: {
+          type: 'number',
+          example: 250,
+          description: 'Base price per hour',
+        },
         customHourPrices: {
           type: 'string',
           example: '[{"hour": 20, "pricePerHour": 350}]',
@@ -90,7 +151,10 @@ export class VenueController {
     },
   })
   @ApiResponse({ status: 201, description: 'Venue created successfully' })
-  @ApiResponse({ status: 400, description: 'Validation failed or invalid coordinates/hours' })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation failed or invalid coordinates/hours',
+  })
   @auth({ roles: [RoleEnum.admin, RoleEnum.superAdmin] })
   @UseInterceptors(
     FilesInterceptor(
@@ -112,11 +176,17 @@ export class VenueController {
   }
 
   @Patch(':id')
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Update Sports Venue Details (Admin / SuperAdmin)',
-    description: 'Updates specific venue fields and optionally uploads additional/replacement photos.',
+    description:
+      'Updates specific venue fields and optionally uploads additional/replacement photos.',
   })
-  @ApiParam({ name: 'id', description: 'Venue MongoDB ID', example: '64e8b0a1f2b4c10012345678' })
+  @ApiParam({
+    name: 'id',
+    description: 'Venue MongoDB ID',
+    example: '64e8b0a1f2b4c10012345678',
+  })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     description: 'Updated venue fields + optional image files',
@@ -125,14 +195,25 @@ export class VenueController {
       properties: {
         venueName: { type: 'string', example: 'Camp Nou Arena - Updated' },
         address: { type: 'string', example: '123 New Stadium Road' },
-        sportsType: { type: 'array', items: { type: 'string' }, example: ['Football'] },
+        sportsType: {
+          type: 'array',
+          items: { type: 'string' },
+          example: ['Football'],
+        },
         locationAlt: { type: 'number', example: 30.0444 },
         locationLang: { type: 'number', example: 31.2357 },
-        amenities: { type: 'array', items: { type: 'string' }, example: ['Parking', 'Shower'] },
+        amenities: {
+          type: 'array',
+          items: { type: 'string' },
+          example: ['Parking', 'Shower'],
+        },
         startWorkingHours: { type: 'number', example: 9 },
         endWorkingHours: { type: 'number', example: 23 },
         defaultHourPrice: { type: 'number', example: 300 },
-        customHourPrices: { type: 'string', example: '[{"hour": 21, "pricePerHour": 400}]' },
+        customHourPrices: {
+          type: 'string',
+          example: '[{"hour": 21, "pricePerHour": 400}]',
+        },
         isActive: { type: 'boolean', example: true },
         images: {
           type: 'array',
@@ -158,7 +239,7 @@ export class VenueController {
   )
   async updateVenue(
     @Param('id') id: string,
-    @Body() body: UpdateteVenueDto,
+    @Body() body: UpdateVenueDto,
     @User() user: AdminUserDocument,
     @UploadedFiles() images: Express.Multer.File[],
   ) {
@@ -166,11 +247,17 @@ export class VenueController {
   }
 
   @Delete(':id')
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Delete Sports Venue (Admin / SuperAdmin / Manager / Owner)',
-    description: 'Permanently deletes the specified venue and cleans up associated resources.',
+    description:
+      'Soft deletes the specified venue, deactivating it and preserving booking histories.',
   })
-  @ApiParam({ name: 'id', description: 'Venue MongoDB ID', example: '64e8b0a1f2b4c10012345678' })
+  @ApiParam({
+    name: 'id',
+    description: 'Venue MongoDB ID',
+    example: '64e8b0a1f2b4c10012345678',
+  })
   @ApiResponse({ status: 200, description: 'Venue deleted successfully' })
   @ApiResponse({ status: 404, description: 'Venue not found' })
   @auth({

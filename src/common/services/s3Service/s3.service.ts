@@ -178,8 +178,8 @@ export class S3Service {
 
   async getPreSignedUrl({
     Key = 'General',
-    expiresIn = 60 * 10,
-    download = 'true',
+    expiresIn = 60 * 60 * 24,
+    download = 'false',
   }: {
     Key: string;
     expiresIn?: number;
@@ -196,6 +196,48 @@ export class S3Service {
 
     const url = await getSignedUrl(this.client, command, { expiresIn });
     return { url };
+  }
+
+  async getPreSignedUrls(
+    Keys: string[],
+    options?: { expiresIn?: number; download?: string },
+  ): Promise<string[]> {
+    if (!Keys || !Array.isArray(Keys)) return [];
+    const urls = await Promise.all(
+      Keys.map(async (Key) => {
+        if (!Key) return '';
+        if (Key.startsWith('http://') || Key.startsWith('https://')) {
+          return Key;
+        }
+        try {
+          const { url } = await this.getPreSignedUrl({
+            Key,
+            expiresIn: options?.expiresIn ?? 60 * 60 * 24,
+            download: options?.download ?? 'false',
+          });
+          return url;
+        } catch {
+          return this.getFullUrl(Key);
+        }
+      }),
+    );
+    return urls.filter(Boolean);
+  }
+
+
+  getFullUrl(Key: string): string {
+    if (!Key) return '';
+    if (Key.startsWith('http://') || Key.startsWith('https://')) {
+      return Key;
+    }
+    const bucket = process.env.AWS_BUCKET_NAME;
+    const region = process.env.AWS_REGION || 'us-east-1';
+    return `https://${bucket}.s3.${region}.amazonaws.com/${Key}`;
+  }
+
+  getFullUrls(Keys: string[]): string[] {
+    if (!Keys || !Array.isArray(Keys)) return [];
+    return Keys.map((key) => this.getFullUrl(key)).filter(Boolean);
   }
 
   async deleteFile(Key: string) {
@@ -217,3 +259,4 @@ export class S3Service {
     return await this.client.send(command);
   }
 }
+

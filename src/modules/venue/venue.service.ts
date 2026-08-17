@@ -4,8 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Types } from 'mongoose';
 import { VenueRepo } from 'src/common/reposetories/venue-repo';
-import { CreateVenueDto, UpdateteVenueDto } from './dto/venue.dto';
+import {
+  CreateVenueDto,
+  GetVenuesQueryDto,
+  UpdateVenueDto,
+} from './dto/venue.dto';
 import { S3Service } from 'src/common/services/s3Service/s3.service';
 import { VenueAmenities } from './entities/venue.entity';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
@@ -32,6 +37,72 @@ export class VenueService {
     private readonly s3service: S3Service,
   ) {}
 
+  async getAllVenues(query?: GetVenuesQueryDto) {
+    const filter: Record<string, any> = {
+      isActive: true,
+      isDeleted: { $ne: true },
+    };
+
+    if (query?.sportsType?.trim()) {
+      filter.sportsType = {
+        $regex: new RegExp(`^${query.sportsType.trim()}$`, 'i'),
+      };
+    }
+
+    const venues = await this.venueRepo.find({
+      filter,
+      projection: {
+        venueName: 1,
+        address: 1,
+        sportsType: 1,
+        amenities: 1,
+        defaultHourPrice: 1,
+        images: 1,
+      },
+    });
+
+    return Promise.all(
+      venues.map(async (venue) => {
+        const venueObj = venue.toObject ? venue.toObject() : venue;
+        return {
+          ...venueObj,
+          images: await this.s3service.getPreSignedUrls(
+            venueObj.images || [],
+            { download: 'false', expiresIn: 60 * 60 * 24 },
+          ),
+        };
+      }),
+    );
+  }
+
+  async getVenueById(id: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid venue ID format');
+    }
+
+    const venue = await this.venueRepo.findOne({
+      filter: {
+        _id: id,
+        isDeleted: { $ne: true },
+      },
+    });
+
+    if (!venue) {
+      throw new NotFoundException('Venue not found');
+    }
+
+    const venueObj = venue.toObject ? venue.toObject() : venue;
+    return {
+      ...venueObj,
+      images: await this.s3service.getPreSignedUrls(venueObj.images || [], {
+        download: 'false',
+        expiresIn: 60 * 60 * 24,
+      }),
+    };
+  }
+
+
+
   async createVenue(
     body: CreateVenueDto,
     user: AdminUserDocument,
@@ -52,7 +123,7 @@ export class VenueService {
     } = body;
 
     const existingVenue = await this.venueRepo.findOne({
-      filter: { venueName },
+      filter: { venueName, isDeleted: { $ne: true } },
     });
     if (existingVenue) {
       throw new BadRequestException('Venue name already exists');
@@ -96,10 +167,12 @@ export class VenueService {
       amenities: venueAmenities as VenueAmenities,
       startWorkingHours,
       endWorkingHours,
+      WorkingHours: endWorkingHours - startWorkingHours,
       defaultHourPrice,
       customHourPrices,
       isActive: isActive !== undefined ? isActive : true,
       createdBy: user._id,
+      isDeleted: false,
     });
 
     if (!venue) {
@@ -107,16 +180,29 @@ export class VenueService {
       throw new BadRequestException('Failed to create venue');
     }
 
-    return venue;
+    const venueObj = venue.toObject ? venue.toObject() : venue;
+    return {
+      ...venueObj,
+      images: await this.s3service.getPreSignedUrls(venueObj.images || [], {
+        download: 'false',
+        expiresIn: 60 * 60 * 24,
+      }),
+    };
   }
 
   async updateVenue(
     id: string,
-    body: UpdateteVenueDto,
+    body: UpdateVenueDto,
     user: AdminUserDocument,
     images?: Express.Multer.File[],
   ) {
-    const venue = await this.venueRepo.findById(id);
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid venue ID format');
+    }
+
+    const venue = await this.venueRepo.findOne({
+      filter: { _id: id, isDeleted: { $ne: true } },
+    });
     if (!venue) {
       throw new NotFoundException('Venue not found');
     }
@@ -139,7 +225,11 @@ export class VenueService {
 
     if (venueName && venueName !== venue.venueName) {
       const existingVenue = await this.venueRepo.findOne({
-        filter: { venueName },
+        filter: {
+          venueName,
+          _id: { $ne: id },
+          isDeleted: { $ne: true },
+        },
       });
       if (existingVenue) {
         throw new ConflictException('Venue name already exists');
@@ -208,20 +298,42 @@ export class VenueService {
       update: updateData,
     });
 
-    return updatedVenue;
+    const updatedVenueObj = updatedVenue?.toObject
+      ? updatedVenue.toObject()
+      : updatedVenue;
+    return updatedVenueObj
+      ? {
+          ...updatedVenueObj,
+          images: await this.s3service.getPreSignedUrls(
+            updatedVenueObj.images || [],
+            { download: 'false', expiresIn: 60 * 60 * 24 },
+          ),
+        }
+      : null;
   }
 
   async deleteVenue(id: string, user: AdminUserDocument) {
-    const venue = await this.venueRepo.findById(id);
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid venue ID format');
+    }
+
+    const venue = await this.venueRepo.findOne({
+      filter: { _id: id, isDeleted: { $ne: true } },
+    });
     if (!venue) {
       throw new NotFoundException('Venue not found');
     }
-    await this.venueRepo.findOneAndDelete({
-      filter: { id, deletedBy: user._id },
-      options: { deletedAt: new Date(), isDeleted: true },
+
+    await this.venueRepo.findByIdAndUpdate({
+      id,
+      update: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: user._id,
+        isActive: false,
+      },
     });
 
-    await this.s3service.deleteManyFiles(venue.images);
     return { message: 'Venue deleted successfully' };
   }
 }

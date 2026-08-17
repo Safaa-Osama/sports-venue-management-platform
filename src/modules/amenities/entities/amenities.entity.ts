@@ -1,5 +1,6 @@
 import { MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
+import { AdminUser } from 'src/modules/user/entities/admin-user.entity';
 import { Venue } from 'src/modules/venue/entities/venue.entity';
 
 export type AmenitiesDocument = HydratedDocument<Amenities>;
@@ -12,44 +13,33 @@ export type AmenitiesDocument = HydratedDocument<Amenities>;
   toObject: { virtuals: true },
 })
 export class Amenities {
-  @Prop({ type: Types.ObjectId, ref: Venue.name })
+  @Prop({ type: Types.ObjectId, ref: Venue.name, required: true })
   venueId: Types.ObjectId;
 
-  @Prop({ type: Boolean, default: false })
-  Parking: boolean;
+  @Prop({ type: String, default: '' })
+  amenityName: string;
+
+
+  @Prop({ type: String, default: 'icon image url' })
+  iconUrl: string;
 
   @Prop({ type: Boolean, default: false })
-  Cafeteria: boolean;
+  isDeleted: boolean; 
 
-  @Prop({ type: Boolean, default: false })
-  Shower: boolean;
+  @Prop({ type: Boolean, default: true })
+  isActive: boolean;
 
-  @Prop({ type: Boolean, default: false })
-  ChangingRoom: boolean;
+  @Prop({ type: Date, default: Date.now })
+  createdAt: Date;
 
-  @Prop({ type: Boolean, default: false })
-  Toilets: boolean;
+  @Prop({ type: Date, default: Date.now })
+  updatedAt: Date;
 
-  @Prop({ type: Boolean, default: false })
-  WiFi: boolean;
+  @Prop({ type: Types.ObjectId, ref: AdminUser.name })
+  createdBy: Types.ObjectId;
 
-  @Prop({ type: Boolean, default: false })
-  Lockers: boolean;
-
-  @Prop({ type: Boolean, default: false })
-  FloodLights: boolean;
-
-  @Prop({ type: Boolean, default: false })
-  DrinkingWater: boolean;
-
-  @Prop({ type: Boolean, default: false })
-  FirstAid: boolean;
-
-  @Prop({ type: Boolean, default: false })
-  PrayerArea: boolean;
-
-  @Prop({ type: Boolean, default: false })
-  EquipmentRental: boolean;
+  @Prop({ type: Types.ObjectId, ref: AdminUser.name })
+  updatedBy: Types.ObjectId;
 }
 
 export const AmenitiesSchema = SchemaFactory.createForClass(Amenities);

@@ -155,6 +155,16 @@ export class CreateVenueDto {
   isActive?: boolean;
 }
 
+export class GetVenuesQueryDto {
+  @ApiPropertyOptional({
+    description: 'Filter active venues by sport type (e.g. Football, Padel, Basketball)',
+    example: 'Football',
+  })
+  @IsOptional()
+  @IsString()
+  sportsType?: string;
+}
+
 @AtLeastOne([
   'venueName',
   'address',
@@ -168,5 +178,6 @@ export class CreateVenueDto {
   'customHourPrices',
   'isActive',
 ])
-export class UpdateteVenueDto extends PartialType(CreateVenueDto) {}
-export class UpdateVenueDto extends UpdateteVenueDto {}
+export class UpdateVenueDto extends PartialType(CreateVenueDto) {}
+export { UpdateVenueDto as UpdateteVenueDto };
+
