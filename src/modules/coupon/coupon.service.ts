@@ -4,14 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CouponEnum } from 'src/common/enums/couponEnum';
-import { CouponRepo } from 'src/common/reposetories/coupon-repo';
+import { CouponRepo } from 'src/common/repositories/coupon-repo';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
 import {
   CreateCouponDto,
   UpdateCouponDto,
   ValidateCouponDto,
 } from './dto/coupon.dto';
-import { UserRepo } from 'src/common/reposetories/user-repo';
+import { UserRepo } from 'src/common/repositories/user-repo';
 import { calculateCouponDiscount } from './utils/coupon-calculator.utils';
 
 @Injectable()
@@ -19,7 +19,7 @@ export class CouponService {
   constructor(
     private readonly couponRepo: CouponRepo,
     private readonly userRepo: UserRepo,
-  ) {}
+  ) { }
 
   async createCoupon(body: CreateCouponDto, user: AdminUserDocument) {
     const {

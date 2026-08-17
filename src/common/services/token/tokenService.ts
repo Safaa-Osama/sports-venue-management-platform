@@ -1,11 +1,13 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService, JwtSignOptions, JwtVerifyOptions } from '@nestjs/jwt';
-import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
-import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
+import { CustomerUserRepo } from 'src/common/repositories/customer-user-repo';
+import { AdminUserRepo } from 'src/common/repositories/admin-user-repo';
+import { CustomerStatusEnum } from 'src/common/enums/userEnum';
 import RedisService from '../redis/redis.service';
 
 @Injectable()
@@ -15,7 +17,7 @@ export class TokenService {
     private readonly customerUserRepo: CustomerUserRepo,
     private readonly adminUserRepo: AdminUserRepo,
     private readonly redisService: RedisService,
-  ) {}
+  ) { }
 
   generateToken({
     payload,
@@ -87,6 +89,12 @@ export class TokenService {
 
     if (!user) {
       throw new UnauthorizedException('User not found');
+    }
+
+    if (user.status === CustomerStatusEnum.suspended) {
+      throw new ForbiddenException(
+        'Your account has been suspended. Please contact support.',
+      );
     }
 
     const revoked = await this.redisService.getValue(

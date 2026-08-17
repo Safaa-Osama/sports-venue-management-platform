@@ -1,31 +1,19 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from '@nestjs/common';
-import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
-import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
-import { OtpService } from 'src/common/services/otp/otp.service';
-import { S3Service } from 'src/common/services/s3Service/s3.service';
-import { TokenService } from 'src/common/services/token/tokenService';
-import {
-  CreateAdminDto,
-  CustomerSendOtpDto,
-  CustomerVerifyOtpDto,
-  DashboardLoginDto,
-  GoogleLoginDto,
-} from './dto/auth.dto';
-import { ProviderEnum, RoleEnum } from 'src/common/enums/userEnum';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { compare, hash } from 'src/common/services/securityService/hash';
 import { OAuth2Client } from 'google-auth-library';
-import RedisService from 'src/common/services/redis/redis.service';
-import {
-  generateOtp,
-  sendMail,
-} from 'src/common/services/mailService/sendMail';
+import { CustomerStatusEnum, ProviderEnum, RoleEnum, } from 'src/common/enums/userEnum';
+import { AdminUserRepo } from 'src/common/repositories/admin-user-repo';
+import { CustomerUserRepo } from 'src/common/repositories/customer-user-repo';
 import { eventEmitter } from 'src/common/services/mailService/email.event';
 import { emailTemplete } from 'src/common/services/mailService/mailTemplete';
+import { generateOtp, sendMail } from 'src/common/services/mailService/sendMail';
+import { OtpService } from 'src/common/services/otp/otp.service';
+import RedisService from 'src/common/services/redis/redis.service';
+import { S3Service } from 'src/common/services/s3Service/s3.service';
+import { compare, hash } from 'src/common/services/securityService/hash';
+import { TokenService } from 'src/common/services/token/tokenService';
+import { AdminUserDocument } from '../user/entities/admin-user.entity';
+import { CreateAdminDto, CustomerSendOtpDto, CustomerVerifyOtpDto, DashboardLoginDto, GoogleLoginDto, } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
@@ -36,15 +24,23 @@ export class AuthService {
     private readonly s3Service: S3Service,
     private readonly tokenService: TokenService,
     private readonly redisService: RedisService,
-  ) {}
+  ) { }
 
-  // --- CUSTOMER MOBILE AUTH ---
+
+  private sanitizeUser(user: AdminUserDocument) {
+    if (!user) return null;
+    const userObj = user.toObject
+      ? user.toObject({ transform: true })
+      : { ...user };
+    const { password, ...withoutPassword } = userObj;
+    return withoutPassword;
+  }
 
   async sendCustomerOtp(body: CustomerSendOtpDto) {
     return this.otpService.sendOtp(body.phone);
   }
 
-  sendEmail = async ({ email }: { email: string }) => {
+  async sendEmailOTP({ email }: { email: string }) {
     const isBlocked = await this.redisService.ttl(
       this.redisService.blockOtp(email),
     );
@@ -68,16 +64,14 @@ export class AuthService {
         value: '1',
         ttl: 60 * 3,
       });
-      throw new BadRequestException(
-        'you have exceeded the maximum number of tries',
-      );
+      throw new BadRequestException('you have exceeded the maximum number of tries ');
     }
 
     const otp = generateOtp();
     eventEmitter.emit(email, async () => {
       await sendMail({
         to: email,
-        subject: 'Ecommerce-App',
+        subject: 'sport venue platform',
         html: emailTemplete({ otp }),
       });
     });
@@ -91,10 +85,7 @@ export class AuthService {
     await this.redisService.inc(this.redisService.maxOtp(email));
   };
 
-  async verifyCustomerOtp(
-    body: CustomerVerifyOtpDto,
-    avatar?: Express.Multer.File,
-  ) {
+  async verifyCustomerOtp(body: CustomerVerifyOtpDto, avatar?: Express.Multer.File) {
     const { phone, code, userName, position } = body;
 
     await this.otpService.verifyOtp(phone, code);
@@ -126,7 +117,12 @@ export class AuthService {
       }
     }
 
-    // Generate Tokens
+    if (customer.status === CustomerStatusEnum.suspended) {
+      throw new ForbiddenException(
+        'Your account has been suspended. Please contact support.',
+      );
+    }
+
     const uuid = randomUUID();
     const accessSecret = this.tokenService.getAccessSecret();
     const refreshSecret = this.tokenService.getRefreshSecret();
@@ -163,14 +159,13 @@ export class AuthService {
   }
 
   // --- DASHBOARD ADMIN / EMPLOYEE AUTH ---
-
-  async loginDashboard(body: DashboardLoginDto) {
+  async loginDashboard(body: DashboardLoginDto): Promise<any> {
     const { email, password } = body;
     const normalizedEmail = email.toLowerCase().trim();
 
     const admin = await this.adminUserRepo.findOne({
       filter: { email: normalizedEmail },
-      options: { select: '+password' },
+      options: { select: '+password' }
     });
 
     if (!admin || !admin.password) {
@@ -214,18 +209,19 @@ export class AuthService {
       },
     });
 
-    return { user: admin, accessToken, refreshToken };
+    return { admin, accessToken, refreshToken };
   }
 
-  async createAdminUser(body: CreateAdminDto) {
+  async createAdminUser(body: CreateAdminDto): Promise<any> {
     const { email, password, userName, role } = body;
     const normalizedEmail = email.toLowerCase().trim();
 
     const existing = await this.adminUserRepo.findOne({
       filter: { email: normalizedEmail },
+      options: { select: '+password' }
     });
     if (existing) {
-      throw new ConflictException('Admin user with this email already exists');
+      throw new ConflictException('This admin is already exists');
     }
 
     const admin = await this.adminUserRepo.create({
@@ -235,22 +231,51 @@ export class AuthService {
       role: role || RoleEnum.admin,
     });
 
-    console.log({ admin });
     if (!admin) {
       throw new BadRequestException('Failed to create admin user');
     }
 
-    return admin;
+    const uuid = randomUUID();
+    const accessSecret = this.tokenService.getAccessSecret();
+    const refreshSecret = this.tokenService.getRefreshSecret();
+
+    const accessToken = await this.tokenService.generateToken({
+      payload: {
+        id: admin._id,
+        email: admin.email,
+        userType: 'admin',
+        role: admin.role,
+      },
+      options: {
+        secret: accessSecret,
+        expiresIn: '1d',
+        jwtid: uuid,
+      },
+    });
+
+    const refreshToken = await this.tokenService.generateToken({
+      payload: {
+        id: admin._id,
+        email: admin.email,
+        userType: 'admin',
+        role: admin.role,
+      },
+      options: {
+        secret: refreshSecret,
+        expiresIn: '7d',
+        jwtid: uuid,
+      },
+    });
+
+    return { admin, accessToken, refreshToken };
   }
 
   async signUpWithGoogle(body: GoogleLoginDto) {
     const { idToken } = body;
 
-    const clientId = process.env.GOOGLE_CLIENT_ID || process.env.CLIENT_ID;
+    const clientId = process.env.CLIENT_ID;
     if (!clientId) {
-      throw new BadRequestException(
-        'Google Client ID is not configured on the server',
-      );
+      throw new BadRequestException('Google Client ID is not configured on the server');
     }
 
     const client = new OAuth2Client(clientId);
@@ -293,20 +318,21 @@ export class AuthService {
       }
     } else {
       if (user.provider === ProviderEnum.system) {
-        throw new BadRequestException(
-          'Provider mismatch: account exists with system credentials',
-        );
+        throw new BadRequestException('This provider mismatch: account exists with system credentials');
       }
       if (!user.provider) {
-        user =
-          (await this.customerUserRepo.findOneAndUpdate({
-            filter: { _id: user._id },
-            update: {
-              provider: ProviderEnum.google,
-              emailConfirmed: payload.email_verified,
-            },
-          })) || user;
+        user = (await this.customerUserRepo.findOneAndUpdate({
+          filter: { _id: user._id },
+          update: {
+            provider: ProviderEnum.google,
+            emailConfirmed: payload.email_verified,
+          },
+        }))
       }
+    }
+
+    if (user && user.status === CustomerStatusEnum.suspended) {
+      throw new ForbiddenException('Your account has been suspended. Please contact support.');
     }
 
     const uuid = randomUUID();
@@ -315,9 +341,9 @@ export class AuthService {
 
     const accessToken = await this.tokenService.generateToken({
       payload: {
-        id: user._id,
-        email: user.email,
-        phone: user.phone,
+        id: user!._id,
+        email: user!.email,
+        phone: user!.phone,
         userType: 'customer',
         role: RoleEnum.customer,
       },
@@ -330,9 +356,9 @@ export class AuthService {
 
     const refreshToken = await this.tokenService.generateToken({
       payload: {
-        id: user._id,
-        email: user.email,
-        phone: user.phone,
+        id: user!._id,
+        email: user!.email,
+        phone: user!.phone,
         userType: 'customer',
         role: RoleEnum.customer,
       },
@@ -346,3 +372,4 @@ export class AuthService {
     return { user, accessToken, refreshToken };
   }
 }
+

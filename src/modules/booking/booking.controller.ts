@@ -14,7 +14,7 @@ import {
   ApiOperation,
   ApiParam,
   ApiResponse,
-  ApiTags,
+ApiTags,
 } from '@nestjs/swagger';
 import { auth } from 'src/common/decorator/auth.decorator';
 import { User } from 'src/common/decorator/user.decorator';

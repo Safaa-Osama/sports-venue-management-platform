@@ -1,89 +1,57 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsBoolean, IsMongoId, IsNotEmpty, IsOptional } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { AtLeastOne } from 'src/common/decorator/AtLeastOne.decorator';
 
 export class CreateAmenitiesDto {
   @ApiProperty({
-    description: 'MongoDB ObjectId of the associated venue',
-    example: '64e8b0a1f2b4c10012345678',
+    description: 'Unique name of the amenity (e.g. WiFi, Parking, Showers)',
+    example: 'WiFi',
   })
-  @IsMongoId()
+  @IsString()
   @IsNotEmpty()
-  venueId: string;
+  amenityName: string;
 
-  @ApiPropertyOptional({ description: 'On-site vehicle parking availability', default: false, example: true })
+  @ApiPropertyOptional({
+    description: 'URL or icon identifier for the amenity',
+    example: 'https://cdn.example.com/icons/wifi.svg',
+  })
+  @IsString()
+  @IsOptional()
+  iconUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'Whether the amenity is active and available',
+    default: true,
+    example: true,
+  })
   @IsBoolean()
   @IsOptional()
-  Parking?: boolean;
-
-  @ApiPropertyOptional({ description: 'Cafeteria / snack bar availability', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  Cafeteria?: boolean;
-
-  @ApiPropertyOptional({ description: 'Showers availability', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  Shower?: boolean;
-
-  @ApiPropertyOptional({ description: 'Changing rooms availability', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  ChangingRoom?: boolean;
-
-  @ApiPropertyOptional({ description: 'Toilets / Restrooms availability', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  Toilets?: boolean;
-
-  @ApiPropertyOptional({ description: 'High-speed guest WiFi availability', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  WiFi?: boolean;
-
-  @ApiPropertyOptional({ description: 'Secure lockers availability', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  Lockers?: boolean;
-
-  @ApiPropertyOptional({ description: 'Stadium floodlights for night games', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  FloodLights?: boolean;
-
-  @ApiPropertyOptional({ description: 'Drinking water stations availability', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  DrinkingWater?: boolean;
-
-  @ApiPropertyOptional({ description: 'First aid medical kit on premise', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  FirstAid?: boolean;
-
-  @ApiPropertyOptional({ description: 'Prayer room / area availability', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  PrayerArea?: boolean;
-
-  @ApiPropertyOptional({ description: 'Sports equipment rental service (balls, rackets, bibs)', default: false, example: true })
-  @IsBoolean()
-  @IsOptional()
-  EquipmentRental?: boolean;
+  isActive?: boolean;
 }
 
-@AtLeastOne([
-  'Parking',
-  'Cafeteria',
-  'Shower',
-  'ChangingRoom',
-  'Toilets',
-  'WiFi',
-  'Lockers',
-  'FloodLights',
-  'DrinkingWater',
-  'FirstAid',
-  'PrayerArea',
-  'EquipmentRental',
-])
+@AtLeastOne(['amenityName', 'iconUrl', 'isActive'])
 export class UpdateAmenitiesDto extends PartialType(CreateAmenitiesDto) {}
+
+export class QueryAmenitiesDto {
+  @ApiPropertyOptional({
+    description: 'Filter amenities by active status (true/false)',
+    example: true,
+  })
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return undefined;
+  })
+  isActive?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Search amenities by name (case-insensitive search)',
+    example: 'wifi',
+  })
+  @IsString()
+  @IsOptional()
+  search?: string;
+}

@@ -1,6 +1,6 @@
 import { MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
-import { ProviderEnum } from 'src/common/enums/userEnum';
+import { CustomerStatusEnum, ProviderEnum } from 'src/common/enums/userEnum';
 
 export type CustomerUserDocument = HydratedDocument<CustomerUser>;
 
@@ -25,8 +25,23 @@ export class CustomerUser {
       return this.provider == ProviderEnum.system ? true : false;
     },
     unique: true,
+    sparse: true,
   })
   phone?: string;
+
+  @Prop({
+    type: String,
+    trim: true,
+    required: function () {
+      return this.provider == ProviderEnum.google ? true : false;
+    },
+    unique: true,
+    sparse: true,
+  })
+  email?: string;
+
+  @Prop({ type: Boolean, default: false })
+  emailConfirmed?: boolean;
 
   @Prop({ type: String })
   avatar?: string;
@@ -37,11 +52,8 @@ export class CustomerUser {
   @Prop({ type: Number, default: 0 })
   walletBalance: number;
 
-  @Prop({ type: Boolean, required: false })
-  emailConfirmed?: boolean;
-
-  @Prop({ type: String, required: true })
-  email: string;
+  @Prop({ type: String, enum: CustomerStatusEnum, default: CustomerStatusEnum.active, })
+  status: CustomerStatusEnum;
 }
 
 export const CustomerUserSchema = SchemaFactory.createForClass(CustomerUser);

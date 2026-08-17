@@ -1,11 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
   MinLength,
 } from 'class-validator';
+import { CustomerStatusEnum } from 'src/common/enums/userEnum';
 
 export class UpdateCustomerUserDto {
   @ApiPropertyOptional({
@@ -16,6 +18,7 @@ export class UpdateCustomerUserDto {
   @IsOptional()
   userName?: string;
 
+  
   @ApiPropertyOptional({
     description: 'Updated phone number',
     example: '+201012345678',
@@ -24,14 +27,6 @@ export class UpdateCustomerUserDto {
   @IsOptional()
   phone?: string;
 
-  @ApiPropertyOptional({
-    description: 'Avatar image URL or binary upload',
-    type: 'string',
-    format: 'binary',
-  })
-  @IsString()
-  @IsOptional()
-  avatar?: string;
 
   @ApiPropertyOptional({
     description: 'Updated field position (e.g. Defender, Goalkeeper)',
@@ -40,14 +35,6 @@ export class UpdateCustomerUserDto {
   @IsString()
   @IsOptional()
   position?: string;
-
-  @ApiPropertyOptional({
-    description: 'Direct adjustment of customer wallet balance (Admin only)',
-    example: 1500,
-  })
-  @IsNumber()
-  @IsOptional()
-  walletBalance?: number;
 }
 
 export class UpdateAdminUserDto {

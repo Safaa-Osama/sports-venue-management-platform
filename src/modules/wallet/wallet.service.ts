@@ -10,8 +10,8 @@ import {
   TransactionStatusEnum,
   TransactionTypeEnum,
 } from 'src/common/enums/walletEnum';
-import { WalletRepo } from 'src/common/reposetories/wallet-repo';
-import { WalletTransactionRepo } from 'src/common/reposetories/wallet-transaction-repo';
+import { WalletRepo } from 'src/common/repositories/wallet-repo';
+import { WalletTransactionRepo } from 'src/common/repositories/wallet-transaction-repo';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
 import type { UserDocument } from '../user/entities/user.entity';
 import {
@@ -27,7 +27,7 @@ export class WalletService {
   constructor(
     private readonly walletRepo: WalletRepo,
     private readonly walletTransactionRepo: WalletTransactionRepo,
-  ) {}
+  ) { }
 
   private generateReceiptNumber(): string {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');

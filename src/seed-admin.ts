@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { AdminUserRepo } from './common/reposetories/admin-user-repo';
+import { AdminUserRepo } from './common/repositories/admin-user-repo';
 import { RoleEnum } from './common/enums/userEnum';
 import * as bcrypt from 'bcrypt';
 

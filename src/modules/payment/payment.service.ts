@@ -14,9 +14,9 @@ import {
 } from 'src/common/enums/bookingEnum';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { PaymobService } from 'src/common/integration/paymob/paymob.service';
-import { BookingRepo } from 'src/common/reposetories/booking-repo';
-import { PaymentRepo } from 'src/common/reposetories/payment-repo';
-import { VenueRepo } from 'src/common/reposetories/venue-repo';
+import { BookingRepo } from 'src/common/repositories/booking-repo';
+import { PaymentRepo } from 'src/common/repositories/payment-repo';
+import { VenueRepo } from 'src/common/repositories/venue-repo';
 import { UserDocument } from '../user/entities/user.entity';
 import { WalletService } from '../wallet/wallet.service';
 import {
@@ -34,7 +34,7 @@ export class PaymentService {
     private readonly venueRepo: VenueRepo,
     private readonly walletService: WalletService,
     private readonly paymobService: PaymobService,
-  ) {}
+  ) { }
 
   private generateTransactionId(): string {
     const timestamp = Date.now().toString(36).toUpperCase();

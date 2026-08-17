@@ -8,23 +8,17 @@ export type AdminUserDocument = HydratedDocument<AdminUser>;
   timestamps: true,
   strictQuery: true,
   strict: true,
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true },
+  toJSON: {virtuals: true},
+  toObject: {virtuals: true},
 })
 export class AdminUser {
   @Prop({ type: String, required: true })
   userName: string;
 
-  @Prop({
-    type: String,
-    required: true,
-    unique: true,
-    index: true,
-    lowercase: true,
-  })
+  @Prop({type: String, required: true, unique: true, lowercase: true})
   email: string;
 
-  @Prop({ type: String, required: true, select: false })
+  @Prop({ type: String, required: true })
   password: string;
 
   @Prop({ type: String, enum: RoleEnum, default: RoleEnum.admin })

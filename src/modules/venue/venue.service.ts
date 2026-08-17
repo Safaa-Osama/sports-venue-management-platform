@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Types } from 'mongoose';
-import { VenueRepo } from 'src/common/reposetories/venue-repo';
+import { VenueRepo } from 'src/common/repositories/venue-repo';
 import {
   CreateVenueDto,
   GetVenuesQueryDto,
@@ -35,7 +35,7 @@ export class VenueService {
   constructor(
     private readonly venueRepo: VenueRepo,
     private readonly s3service: S3Service,
-  ) {}
+  ) { }
 
   async getAllVenues(query?: GetVenuesQueryDto) {
     const filter: Record<string, any> = {
@@ -303,12 +303,12 @@ export class VenueService {
       : updatedVenue;
     return updatedVenueObj
       ? {
-          ...updatedVenueObj,
-          images: await this.s3service.getPreSignedUrls(
-            updatedVenueObj.images || [],
-            { download: 'false', expiresIn: 60 * 60 * 24 },
-          ),
-        }
+        ...updatedVenueObj,
+        images: await this.s3service.getPreSignedUrls(
+          updatedVenueObj.images || [],
+          { download: 'false', expiresIn: 60 * 60 * 24 },
+        ),
+      }
       : null;
   }
 

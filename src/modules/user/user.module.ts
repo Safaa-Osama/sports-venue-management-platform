@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UserController } from './user.controller';
-import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
-import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
+import { CustomerUserRepo } from 'src/common/repositories/customer-user-repo';
+import { AdminUserRepo } from 'src/common/repositories/admin-user-repo';
 import customerUserModel from './entities/customer-user.entity';
 import adminUserModel from './entities/admin-user.entity';
 import { TokenService } from 'src/common/services/token/tokenService';
@@ -24,4 +24,4 @@ import { S3Service } from 'src/common/services/s3Service/s3.service';
   ],
   exports: [CustomerUserRepo, AdminUserRepo, customerUserModel, adminUserModel],
 })
-export class UserModule {}
+export class UserModule { }

@@ -1,36 +1,17 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Patch,
-  UploadedFile,
-  UseInterceptors,
-} from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
-  ApiOperation,
-  ApiParam,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, UploadedFile, UseInterceptors, } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { UserService } from './user.service';
-import { User } from 'src/common/decorator/user.decorator';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiResponse, ApiTags, } from '@nestjs/swagger';
 import { auth } from 'src/common/decorator/auth.decorator';
+import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
-import {
-  UpdateAdminUserDto,
-  UpdateCustomerUserDto,
-} from './dto/update-user.dto';
-import { UserDocument } from './entities/user.entity';
+import { UpdateAdminUserDto, UpdateCustomerUserDto, } from './dto/update-user.dto';
+import { UserService } from './user.service';
+
 
 @ApiTags('Users')
 @Controller('users')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(private readonly userService: UserService) { }
 
   @Get('customers')
   @ApiOperation({
@@ -43,6 +24,76 @@ export class UserController {
   })
   getAllCustomers() {
     return this.userService.getAllCustomers();
+  }
+
+  @Get('customer/profile')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get Authenticated Customer Profile',
+    description:
+      'Returns the fresh customer profile document for the currently authenticated customer token.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Customer profile retrieved successfully',
+    schema: {
+      example: {
+        success: true,
+        statusCode: 200,
+        message: 'done',
+        data: {
+          _id: '64e8b0a1f2b4c10012345678',
+          userName: 'John Doe',
+          phone: '+201012345678',
+          email: 'johndoe@example.com',
+          avatar: 'https://s3.amazonaws.com/.../avatar.jpg',
+          position: 'Midfielder',
+          walletBalance: 250,
+          status: 'active',
+          provider: 'system',
+          emailConfirmed: true,
+          createdAt: '2026-08-17T12:00:00.000Z',
+          updatedAt: '2026-08-17T12:00:00.000Z',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Invalid or missing token' })
+  @ApiResponse({ status: 404, description: 'Customer not found' })
+  @auth({ roles: [RoleEnum.customer, RoleEnum.user] })
+  getCustomerProfile(@User() user: any) {
+    return this.userService.getCustomerProfile(user);
+  }
+
+  @Get('customers/:id')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get Customer User by ID',
+    description:
+      'Retrieves specific customer user profile details by their MongoDB ObjectId.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Customer User MongoDB ID',
+    example: '64e8b0a1f2b4c10012345678',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Customer user profile retrieved successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Invalid customer ID format' })
+  @ApiResponse({ status: 404, description: 'Customer user not found' })
+  @auth({
+    roles: [
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+      RoleEnum.customer,
+    ],
+  })
+  getCustomerById(@Param('id') id: string) {
+    return this.userService.getCustomerById(id);
   }
 
   @Get('admins')
@@ -117,6 +168,11 @@ export class UserController {
         phone: { type: 'string', example: '+201012345678' },
         position: { type: 'string', example: 'Striker' },
         walletBalance: { type: 'number', example: 500 },
+        status: {
+          type: 'string',
+          enum: ['active', 'hold', 'suspended'],
+          example: 'active',
+        },
         avatar: {
           type: 'string',
           format: 'binary',

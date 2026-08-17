@@ -15,9 +15,9 @@ import {
   PaymentStatusEnum,
 } from 'src/common/enums/bookingEnum';
 import { RoleEnum } from 'src/common/enums/userEnum';
-import { BookingRepo } from 'src/common/reposetories/booking-repo';
-import { CouponRepo } from 'src/common/reposetories/coupon-repo';
-import { VenueRepo } from 'src/common/reposetories/venue-repo';
+import { BookingRepo } from 'src/common/repositories/booking-repo';
+import { CouponRepo } from 'src/common/repositories/coupon-repo';
+import { VenueRepo } from 'src/common/repositories/venue-repo';
 import RedisService from 'src/common/services/redis/redis.service';
 import { calculateCouponDiscount } from '../coupon/utils/coupon-calculator.utils';
 import { UserDocument } from '../user/entities/user.entity';
@@ -44,7 +44,7 @@ export class BookingService {
     private readonly bookingGateway: BookingGateway,
     private readonly redisService: RedisService,
     @InjectConnection() private readonly connection: Connection,
-  ) {}
+  ) { }
 
   private computeRequestFingerprint(body: CreateBookingDto): string {
     const canonical = {
@@ -563,7 +563,7 @@ export class BookingService {
           try {
             await session.abortTransaction();
             await session.endSession();
-          } catch {}
+          } catch { }
 
           const isReplicaSetError =
             txnError?.code === 20 ||
@@ -586,7 +586,7 @@ export class BookingService {
               await session.abortTransaction();
             }
             await session.endSession();
-          } catch {}
+          } catch { }
         }
       } else {
         return await this.payForBookingCompensating(

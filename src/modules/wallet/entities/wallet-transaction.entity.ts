@@ -49,8 +49,7 @@ export class WalletTransaction {
   description?: string;
 }
 
-export const WalletTransactionSchema =
-  SchemaFactory.createForClass(WalletTransaction);
+export const WalletTransactionSchema =SchemaFactory.createForClass(WalletTransaction);
 
 const walletTransactionModel = MongooseModule.forFeature([
   { name: WalletTransaction.name, schema: WalletTransactionSchema },

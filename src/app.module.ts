@@ -16,6 +16,7 @@ import { WalletModule } from './modules/wallet/wallet.module';
 import { RedisModule } from './common/services/redis/redisModule';
 
 import { AmenitiesModule } from './modules/amenities/amenities.module';
+import { AdvertisementModule } from './modules/advertisement/advertisement.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { AmenitiesModule } from './modules/amenities/amenities.module';
     WalletModule,
     AmenitiesModule,
     RedisModule,
+    AdvertisementModule
   ],
 
   exports: [],

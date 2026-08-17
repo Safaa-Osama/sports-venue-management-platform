@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Post,
   UploadedFile,
   UseInterceptors,
@@ -25,14 +26,15 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { multer_cloud } from 'src/common/interceptor/multer';
 import { MulterEnum, StoreEnum } from 'src/common/enums/multerEnum';
 import { auth } from 'src/common/decorator/auth.decorator';
+import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
+
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
-  // --- CUSTOMER MOBILE ENDPOINTS ---
 
   @Post('customer/send-otp')
   @ApiOperation({
@@ -183,7 +185,7 @@ export class AuthController {
     },
   })
   @ApiResponse({ status: 401, description: 'Invalid email or password' })
-  loginDashboard(@Body() body: DashboardLoginDto) {
+  loginDashboard(@Body() body: DashboardLoginDto): Promise<any> {
     return this.authService.loginDashboard(body);
   }
 
@@ -197,10 +199,27 @@ export class AuthController {
   @ApiResponse({
     status: 201,
     description: 'Admin user created successfully',
+    schema: {
+      example: {
+        success: true,
+        statusCode: 201,
+        message: 'done',
+        data: {
+          accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+          refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+          user: {
+            _id: '64e8b0a1f2b4c10012345679',
+            email: 'admin@sportsvenue.com',
+            userName: 'Admin User',
+            role: 'admin',
+          },
+        },
+      },
+    },
   })
   @ApiResponse({ status: 403, description: 'Forbidden - Insufficient permissions' })
   @auth({ roles: [RoleEnum.superAdmin, RoleEnum.admin] })
-  createAdminUser(@Body() body: CreateAdminDto) {
+  createAdminUser(@Body() body: CreateAdminDto): Promise<any> {
     return this.authService.createAdminUser(body);
   }
 }

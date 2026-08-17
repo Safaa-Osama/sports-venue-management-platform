@@ -16,3 +16,10 @@ export enum GenderEnum {
   male = 'male',
   female = 'female',
 }
+
+export enum CustomerStatusEnum {
+  active = 'active',
+  hold = 'hold',
+  suspended = 'suspended',
+  inactive = 'inactive'
+}

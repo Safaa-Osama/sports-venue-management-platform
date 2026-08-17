@@ -1,17 +1,13 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
-import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
-import {
-  UpdateAdminUserDto,
-  UpdateCustomerUserDto,
-} from './dto/update-user.dto';
-import { Types } from 'mongoose';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { Types } from 'mongoose';
+import { AdminUserRepo } from 'src/common/repositories/admin-user-repo';
+import { CustomerUserRepo } from 'src/common/repositories/customer-user-repo';
 import { S3Service } from 'src/common/services/s3Service/s3.service';
+import { UpdateAdminUserDto, UpdateCustomerUserDto } from './dto/update-user.dto';
+import { AdminUser } from './entities/admin-user.entity';
+import { CustomerUserDocument } from './entities/customer-user.entity';
+
 
 @Injectable()
 export class UserService {
@@ -19,7 +15,7 @@ export class UserService {
     private readonly customerUserRepo: CustomerUserRepo,
     private readonly adminUserRepo: AdminUserRepo,
     private readonly s3Service: S3Service,
-  ) {}
+  ) { }
 
   async getAllCustomers() {
     return this.customerUserRepo.find();
@@ -29,10 +25,11 @@ export class UserService {
     const admins = await this.adminUserRepo.find();
     return admins.map((admin) => {
       const obj = admin.toObject ? admin.toObject() : { ...admin };
-      const { password, ...withoutPassword } = obj as any;
+      const { password, ...withoutPassword } = obj as AdminUser;
       return withoutPassword;
     });
   }
+
 
   getProfile(user: any) {
     if (!user) return null;
@@ -41,11 +38,31 @@ export class UserService {
     return withoutPassword;
   }
 
-  async updateCustomerUser(
-    id: string,
-    updateDto: UpdateCustomerUserDto,
-    avatar?: Express.Multer.File,
-  ) {
+
+  async getCustomerById(id: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid customer user ID format');
+    }
+    const customer = await this.customerUserRepo.findById(new Types.ObjectId(id));
+    if (!customer) {
+      throw new NotFoundException('Customer user not found');
+    }
+    return customer;
+  }
+
+
+  async getCustomerProfile(user: CustomerUserDocument) {
+    if (!user || !user._id) {
+      throw new NotFoundException('Customer not found');
+    }
+    const customer = await this.customerUserRepo.findById(user._id);
+    if (!customer) {
+      throw new NotFoundException('Customer user not found');
+    }
+    return customer;
+  }
+
+  async updateCustomerUser(id: string, body: UpdateCustomerUserDto, avatar?: Express.Multer.File,) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid customer user ID format');
     }
@@ -57,15 +74,15 @@ export class UserService {
       throw new NotFoundException('Customer user not found');
     }
 
-    const updatePayload: Record<string, any> = { ...updateDto };
+    const { phone, position, userName } = body;
 
-    if (updateDto.phone && updateDto.phone !== customer.phone) {
+    if (phone && phone !== customer.phone) {
       const existing = await this.customerUserRepo.findOne({
-        filter: { phone: updateDto.phone, _id: { $ne: objectId } },
+        filter: { phone: phone, _id: { $ne: objectId } },
       });
       if (existing) {
         throw new BadRequestException(
-          'Customer user with this phone number already exists',
+          'this phone is used by another customer',
         );
       }
     }
@@ -77,35 +94,34 @@ export class UserService {
         file: avatar,
         path: 'customerUser',
       });
-      updatePayload.avatar = newlyUploadedImage;
     }
 
-    try {
-      const updatedCustomer = await this.customerUserRepo.findByIdAndUpdate({
-        id: objectId,
-        update: { $set: updatePayload },
-      });
 
-      if (!updatedCustomer) {
-        throw new NotFoundException('Customer user update failed');
-      }
+    const updateData: any = {};
 
-      // If update succeeded and new avatar was uploaded, delete old avatar if existing
-      if (avatar && customer.avatar && newlyUploadedImage) {
-        await this.s3Service.deleteFile(customer.avatar).catch(() => {});
-      }
+    if (userName !== undefined) updateData.userName = userName;
+    if (phone !== undefined) updateData.phone = phone;
+    if (position !== undefined) updateData.position = position;
+    if (avatar && newlyUploadedImage !== undefined) updateData.avatar = newlyUploadedImage;
 
-      return updatedCustomer;
-    } catch (error) {
-      // If DB update failed, delete the newly uploaded image from S3
-      if (newlyUploadedImage) {
-        await this.s3Service.deleteFile(newlyUploadedImage).catch(() => {});
-      }
-      throw error;
+    const updatedCustomer = await this.customerUserRepo.findByIdAndUpdate({
+      id: objectId,
+      update: { $set: updateData },
+    });
+
+    if (!updatedCustomer) {
+      throw new NotFoundException('Customer user update failed');
     }
+
+    if (avatar && customer.avatar && newlyUploadedImage) {
+      await this.s3Service.deleteFile(customer.avatar);
+    }
+
+    return updatedCustomer;
   }
 
-  async updateAdminUser(id: string, updateDto: UpdateAdminUserDto) {
+
+  async updateAdminUser(id: string, body: UpdateAdminUserDto) {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('Invalid admin user ID format');
     }
@@ -117,10 +133,13 @@ export class UserService {
       throw new NotFoundException('Admin user not found');
     }
 
-    const updatePayload: Record<string, any> = { ...updateDto };
+    const { userName, email, password } = body;
 
-    if (updateDto.email) {
-      const normalizedEmail = updateDto.email.toLowerCase().trim();
+    const updatePayload: any = {};
+
+    if (userName !== undefined) updatePayload.userName = userName;
+    if (email) {
+      const normalizedEmail = email.toLowerCase().trim();
       if (normalizedEmail !== admin.email) {
         const existing = await this.adminUserRepo.findOne({
           filter: { email: normalizedEmail, _id: { $ne: objectId } },
@@ -134,8 +153,8 @@ export class UserService {
       updatePayload.email = normalizedEmail;
     }
 
-    if (updateDto.password) {
-      updatePayload.password = await bcrypt.hash(updateDto.password, 10);
+    if (password) {
+      updatePayload.password = await bcrypt.hash(password, 10);
     }
 
     const updatedAdmin = await this.adminUserRepo.findByIdAndUpdate({
@@ -147,11 +166,8 @@ export class UserService {
       throw new NotFoundException('Admin user not found');
     }
 
-    const adminObj = updatedAdmin.toObject
-      ? updatedAdmin.toObject()
-      : { ...updatedAdmin };
-    const { password, ...adminWithoutPassword } = adminObj as any;
+    const adminObj = updatedAdmin.toObject()
 
-    return adminWithoutPassword;
+    return adminObj;
   }
 }

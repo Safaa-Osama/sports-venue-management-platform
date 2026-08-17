@@ -1,16 +1,16 @@
 import { Module } from '@nestjs/common';
-import { WalletRepo } from 'src/common/reposetories/wallet-repo';
+import { WalletRepo } from 'src/common/repositories/wallet-repo';
 import walletModel from './entities/wallet.entity';
 import walletTransactionModel from './entities/wallet-transaction.entity';
-import { WalletTransactionRepo } from 'src/common/reposetories/wallet-transaction-repo';
+import { WalletTransactionRepo } from 'src/common/repositories/wallet-transaction-repo';
 import { WalletController } from './wallet.controller';
 import { WalletService } from './wallet.service';
 import userModel from '../user/entities/user.entity';
-import { UserRepo } from 'src/common/reposetories/user-repo';
+import { UserRepo } from 'src/common/repositories/user-repo';
 import { TokenService } from 'src/common/services/token/tokenService';
 import { JwtService } from '@nestjs/jwt';
-import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
-import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
+import { AdminUserRepo } from 'src/common/repositories/admin-user-repo';
+import { CustomerUserRepo } from 'src/common/repositories/customer-user-repo';
 import RedisService from 'src/common/services/redis/redis.service';
 import adminUserModel from '../user/entities/admin-user.entity';
 import customerUserModel from '../user/entities/customer-user.entity';
@@ -37,4 +37,4 @@ import customerUserModel from '../user/entities/customer-user.entity';
   ],
   exports: [WalletService, WalletRepo, WalletTransactionRepo],
 })
-export class WalletModule {}
+export class WalletModule { }

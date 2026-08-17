@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { AdminUserRepo } from 'src/common/reposetories/admin-user-repo';
-import { BookingRepo } from 'src/common/reposetories/booking-repo';
-import { CouponRepo } from 'src/common/reposetories/coupon-repo';
-import { CustomerUserRepo } from 'src/common/reposetories/customer-user-repo';
-import { VenueRepo } from 'src/common/reposetories/venue-repo';
-import { WalletRepo } from 'src/common/reposetories/wallet-repo';
+import { AdminUserRepo } from 'src/common/repositories/admin-user-repo';
+import { BookingRepo } from 'src/common/repositories/booking-repo';
+import { CouponRepo } from 'src/common/repositories/coupon-repo';
+import { CustomerUserRepo } from 'src/common/repositories/customer-user-repo';
+import { VenueRepo } from 'src/common/repositories/venue-repo';
+import { WalletRepo } from 'src/common/repositories/wallet-repo';
 import RedisService from 'src/common/services/redis/redis.service';
 import { TokenService } from 'src/common/services/token/tokenService';
 import couponModel from '../coupon/entities/coupon.entity';
@@ -42,4 +42,4 @@ import bookingModel from './entities/booking.entity';
   ],
   exports: [],
 })
-export class BookingModule {}
+export class BookingModule { }
