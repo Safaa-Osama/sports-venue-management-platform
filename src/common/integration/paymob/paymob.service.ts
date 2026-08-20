@@ -144,6 +144,7 @@ export class PaymobService {
       redirectUrl,
       orderId: data.intention_order?.id?.toString(),
       clientSecret,
+      publicKey: this.publicKey,
     };
   }
 

@@ -271,4 +271,33 @@ export class VenueController {
   async deleteVenue(@Param('id') id: string, @User() user: AdminUserDocument) {
     return this.venueService.deleteVenue(id, user);
   }
+
+  @Delete(':id/image')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Delete a specific photo from Venue gallery',
+    description: 'Removes the specified image from S3 storage and the venue photos list.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Venue MongoDB ID',
+    example: '64e8b0a1f2b4c10012345678',
+  })
+  @ApiResponse({ status: 200, description: 'Venue photo deleted successfully' })
+  @ApiResponse({ status: 404, description: 'Venue or image not found' })
+  @auth({
+    roles: [
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.manager,
+      RoleEnum.owner,
+    ],
+  })
+  async deleteVenueImage(
+    @Param('id') id: string,
+    @Query('imageKey') imageKey: string,
+    @User() user: AdminUserDocument,
+  ) {
+    return this.venueService.deleteVenueImage(id, imageKey, user);
+  }
 }

@@ -47,6 +47,21 @@ export class Advertisement {
   @Prop({ type: Date, default: null })
   endDate?: Date;
 
+  @Prop({ type: Number, default: 5 })
+  displayDuration?: number;
+
+  @Prop({ type: Number, default: 5 })
+  durationMinutes?: number;
+
+  @Prop({ type: Number, default: 1 })
+  priority?: number;
+
+  @Prop({ type: Number, default: 0 })
+  impressions?: number;
+
+  @Prop({ type: Number, default: 0 })
+  clicks?: number;
+
   @Prop({ type: Types.ObjectId, ref: AdminUser.name, index: true })
   createdBy?: Types.ObjectId;
 }

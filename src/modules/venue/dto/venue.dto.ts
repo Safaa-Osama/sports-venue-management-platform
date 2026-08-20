@@ -177,7 +177,51 @@ export class GetVenuesQueryDto {
   'defaultHourPrice',
   'customHourPrices',
   'isActive',
+  'existingImages',
+  'keepImages',
+  'removedImages',
+  'deleteImages',
 ])
-export class UpdateVenueDto extends PartialType(CreateVenueDto) {}
+export class UpdateVenueDto extends PartialType(CreateVenueDto) {
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of existing image URLs / S3 keys to retain',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  existingImages?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of existing image URLs / S3 keys to retain',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  keepImages?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of image URLs / S3 keys to delete from storage',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  removedImages?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of image URLs / S3 keys to delete from storage',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  deleteImages?: string[];
+}
 export { UpdateVenueDto as UpdateteVenueDto };
 

@@ -219,6 +219,10 @@ export class VenueService {
       defaultHourPrice,
       customHourPrices,
       isActive,
+      existingImages,
+      keepImages,
+      removedImages,
+      deleteImages,
     } = body;
 
     const updateData: Record<string, any> = { updatedBy: user._id };
@@ -283,14 +287,56 @@ export class VenueService {
       updateData.amenities = venueAmenities;
     }
 
+    // Process Image Removal & Retention
+    let currentStoredKeys = [...(venue.images || [])];
+
+    const toDeleteInputs = [...(removedImages || []), ...(deleteImages || [])];
+    if (toDeleteInputs.length > 0) {
+      const keysToDelete: string[] = [];
+      for (const input of toDeleteInputs) {
+        const matched = this.matchStoredImageKey(input, currentStoredKeys);
+        if (matched && !keysToDelete.includes(matched)) {
+          keysToDelete.push(matched);
+        }
+      }
+      if (keysToDelete.length > 0) {
+        await this.s3service.deleteManyFiles(keysToDelete).catch(() => {});
+        currentStoredKeys = currentStoredKeys.filter(
+          (k) => !keysToDelete.includes(k),
+        );
+      }
+    }
+
+    const toKeepInputs = existingImages || keepImages;
+    if (toKeepInputs !== undefined) {
+      const keptKeys: string[] = [];
+      for (const input of toKeepInputs) {
+        const matched = this.matchStoredImageKey(input, currentStoredKeys);
+        if (matched && !keptKeys.includes(matched)) {
+          keptKeys.push(matched);
+        }
+      }
+      currentStoredKeys = keptKeys;
+    }
+
+    let newlyUploadedImages: string[] = [];
     if (images && images.length > 0) {
       const targetName = venueName || venue.venueName;
       const sanitizedFolder = targetName.replace(/[^a-zA-Z0-9_-]/g, '_');
-      const uploadedImages = await this.s3service.uploadFiles({
+      newlyUploadedImages = await this.s3service.uploadFiles({
         files: images,
         path: `venue/gallery/${sanitizedFolder}`,
       });
-      updateData.images = [...(venue.images || []), ...uploadedImages];
+    }
+
+    if (
+      existingImages !== undefined ||
+      keepImages !== undefined ||
+      removedImages !== undefined ||
+      deleteImages !== undefined ||
+      (images && images.length > 0)
+    ) {
+      updateData.images = [...currentStoredKeys, ...newlyUploadedImages];
     }
 
     const updatedVenue = await this.venueRepo.findByIdAndUpdate({
@@ -303,13 +349,79 @@ export class VenueService {
       : updatedVenue;
     return updatedVenueObj
       ? {
-        ...updatedVenueObj,
-        images: await this.s3service.getPreSignedUrls(
-          updatedVenueObj.images || [],
-          { download: 'false', expiresIn: 60 * 60 * 24 },
-        ),
-      }
+          ...updatedVenueObj,
+          images: await this.s3service.getPreSignedUrls(
+            updatedVenueObj.images || [],
+            { download: 'false', expiresIn: 60 * 60 * 24 },
+          ),
+        }
       : null;
+  }
+
+  /**
+   * Helper to match an input URL or key substring to an existing stored S3 key in the venue.
+   */
+  private matchStoredImageKey(
+    inputStr: string,
+    storedKeys: string[],
+  ): string | null {
+    if (!inputStr) return null;
+    const cleanInput = inputStr.split('?')[0].trim();
+    for (const key of storedKeys) {
+      if (
+        cleanInput === key ||
+        cleanInput.endsWith(key) ||
+        key.endsWith(cleanInput) ||
+        inputStr.includes(key)
+      ) {
+        return key;
+      }
+    }
+    return null;
+  }
+
+  async deleteVenueImage(
+    id: string,
+    imageKeyOrUrl: string,
+    user: AdminUserDocument,
+  ) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid venue ID format');
+    }
+
+    const venue = await this.venueRepo.findOne({
+      filter: { _id: id, isDeleted: { $ne: true } },
+    });
+    if (!venue) {
+      throw new NotFoundException('Venue not found');
+    }
+
+    const currentKeys = venue.images || [];
+    const matchedKey = this.matchStoredImageKey(imageKeyOrUrl, currentKeys);
+
+    if (!matchedKey) {
+      throw new NotFoundException('Specified image not found in venue gallery');
+    }
+
+    await this.s3service.deleteFile(matchedKey).catch(() => {});
+    const remainingKeys = currentKeys.filter((k) => k !== matchedKey);
+
+    const updatedVenue = await this.venueRepo.findByIdAndUpdate({
+      id,
+      update: { images: remainingKeys, updatedBy: user._id },
+    });
+
+    const updatedVenueObj = updatedVenue?.toObject
+      ? updatedVenue.toObject()
+      : updatedVenue;
+
+    return {
+      message: 'Image deleted successfully',
+      images: await this.s3service.getPreSignedUrls(
+        updatedVenueObj?.images || [],
+        { download: 'false', expiresIn: 60 * 60 * 24 },
+      ),
+    };
   }
 
   async deleteVenue(id: string, user: AdminUserDocument) {

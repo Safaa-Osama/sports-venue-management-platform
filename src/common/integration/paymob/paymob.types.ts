@@ -103,6 +103,7 @@ export interface PaymobCheckoutResult {
   orderId?: string;
   paymentKey?: string;
   clientSecret?: string;
+  publicKey?: string;
 }
 
 export interface PaymobWebhookObject {

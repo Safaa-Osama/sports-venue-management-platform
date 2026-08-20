@@ -16,8 +16,10 @@ import {
 } from 'src/common/enums/bookingEnum';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { BookingRepo } from 'src/common/repositories/booking-repo';
+import { PaymentRepo } from 'src/common/repositories/payment-repo';
 import { CouponRepo } from 'src/common/repositories/coupon-repo';
 import { VenueRepo } from 'src/common/repositories/venue-repo';
+import { PaymobService } from 'src/common/integration/paymob/paymob.service';
 import RedisService from 'src/common/services/redis/redis.service';
 import { calculateCouponDiscount } from '../coupon/utils/coupon-calculator.utils';
 import { UserDocument } from '../user/entities/user.entity';
@@ -30,6 +32,7 @@ import {
   UpdateBookingStatusDto,
 } from './dto/booking.dto';
 import * as crypto from 'crypto';
+import { randomUUID } from 'crypto';
 
 const HOLD_DURATION_MINUTES = 15;
 const CANCELLATION_DEADLINE_HOURS = 24;
@@ -38,9 +41,11 @@ const CANCELLATION_DEADLINE_HOURS = 24;
 export class BookingService {
   constructor(
     private readonly bookingRepo: BookingRepo,
+    private readonly paymentRepo: PaymentRepo,
     private readonly venueRepo: VenueRepo,
     private readonly walletService: WalletService,
     private readonly couponRepo: CouponRepo,
+    private readonly paymobService: PaymobService,
     private readonly bookingGateway: BookingGateway,
     private readonly redisService: RedisService,
     @InjectConnection() private readonly connection: Connection,
@@ -624,11 +629,54 @@ export class BookingService {
     }
 
     if (paymentMethod === PaymentMethodEnum.paymob) {
+      const transactionId = `TXN-${Date.now().toString(36).toUpperCase()}-${randomUUID()
+        .replace(/-/g, '')
+        .substring(0, 8)
+        .toUpperCase()}`;
+
+      const payment = await this.paymentRepo.create({
+        bookingId: booking._id,
+        userId: user._id,
+        amount: amountToPay,
+        paymentMethod: PaymentMethodEnum.paymob,
+        transactionId,
+        status: PaymentStatusEnum.unpaid,
+      });
+
+      const anyUser: any = user;
+      let userPhone = '+201000000000';
+      if (Array.isArray(anyUser.phone) && anyUser.phone.length > 0) {
+        userPhone = anyUser.phone[0];
+      } else if (typeof anyUser.phone === 'string' && anyUser.phone) {
+        userPhone = anyUser.phone;
+      }
+
+      const checkoutData = await this.paymobService.createPaymentIntention({
+        bookingId: booking._id.toString(),
+        transactionId,
+        amount: amountToPay,
+        userEmail: anyUser.email || 'player@arenahub.com',
+        userName: anyUser.userName || anyUser.name || 'Arena Player',
+        userPhone,
+      });
+
+      await this.bookingRepo.findByIdAndUpdate({
+        id: booking._id,
+        update: {
+          paymentMethod: PaymentMethodEnum.paymob,
+        },
+      });
+
       return {
         message: 'Paymob checkout session initiated',
         bookingId: booking._id,
+        paymentId: payment._id,
+        transactionId,
         amountToPay,
         currency: 'EGP',
+        clientSecret: checkoutData.clientSecret,
+        publicKey: checkoutData.publicKey,
+        redirectUrl: checkoutData.redirectUrl,
         status: BookingStatusEnum.pending,
       };
     }

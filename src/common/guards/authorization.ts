@@ -29,7 +29,12 @@ export class authorizationGuard implements CanActivate {
       return true;
     }
 
-    if (!user.role || !allowedRoles.includes(user.role)) {
+    const userRole =
+      user.role ||
+      req.decoded?.role ||
+      (req.decoded?.userType === 'customer' ? RoleEnum.customer : undefined);
+
+    if (!userRole || !allowedRoles.includes(userRole)) {
       throw new ForbiddenException('Forbidden: Insufficient permissions');
     }
 

@@ -50,6 +50,18 @@ export class CreateAdvertisementDto {
   endDate?: Date;
 
   @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  @IsOptional()
+  displayDuration?: number;
+
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  @IsOptional()
+  durationMinutes?: number;
+
+  @IsInt()
   @Type(() => Number)
   @IsOptional()
   priority?: number;

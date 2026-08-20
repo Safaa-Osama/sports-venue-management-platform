@@ -53,6 +53,7 @@ export class WalletController {
   @auth({
     roles: [
       RoleEnum.customer,
+      RoleEnum.user,
       RoleEnum.owner,
       RoleEnum.manager,
       RoleEnum.admin,
