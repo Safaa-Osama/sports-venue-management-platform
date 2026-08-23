@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Types } from 'mongoose';
 import {
@@ -11,6 +12,7 @@ import {
 import { AdvertisementRepo } from 'src/common/repositories/advertisement-repo';
 import { RedisService } from 'src/common/services/redis/redis.service';
 import { S3Service } from 'src/common/services/s3Service/s3.service';
+import { BookingGateway } from '../booking/booking.gateway';
 import {
   BulkReorderAdvertisementDto,
   CreateAdvertisementDto,
@@ -31,6 +33,7 @@ export class AdvertisementService {
     private readonly advertisementRepo: AdvertisementRepo,
     private readonly s3Service: S3Service,
     private readonly redisService: RedisService,
+    @Optional() private readonly bookingGateway?: BookingGateway,
   ) {}
 
   /**
@@ -57,9 +60,9 @@ export class AdvertisementService {
   }
 
   /**
-   * Helper to invalidate all dashboard advertisement caches.
+   * Helper to invalidate all dashboard advertisement caches and broadcast WebSocket update.
    */
-  public async invalidateDashboardCache(): Promise<void> {
+  public async invalidateDashboardCache(action?: string, adId?: string): Promise<void> {
     try {
       const keysToDelete = [
         `${this.CACHE_PREFIX}all`,
@@ -70,6 +73,14 @@ export class AdvertisementService {
       await this.redisService.delKey(keysToDelete);
     } catch {
       // Invalidation errors should not block business operations
+    }
+
+    try {
+      if (this.bookingGateway) {
+        this.bookingGateway.emitAdvertisementsUpdated(action, adId);
+      }
+    } catch (err) {
+      console.warn('[AdvertisementService] Failed to broadcast advertisements_updated event:', err);
     }
   }
 

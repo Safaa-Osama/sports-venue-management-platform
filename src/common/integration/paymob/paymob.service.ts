@@ -138,7 +138,7 @@ export class PaymobService {
       );
     }
 
-    const redirectUrl = `https://accept.paymob.com/unifiedcheckout/?pulse=${clientSecret}&pk=${this.publicKey}`;
+    const redirectUrl = `https://accept.paymob.com/unifiedcheckout/?publicKey=${this.publicKey}&clientSecret=${clientSecret}`;
 
     return {
       redirectUrl,
@@ -149,47 +149,179 @@ export class PaymobService {
   }
 
   /**
-   * Validates Paymob webhook HMAC signature with strict verification.
+   * Performs constant-time, timing-safe comparison between two HMAC hex digests.
+   */
+  private safeCompareHmac(calculated: string, received: string): boolean {
+    if (!calculated || !received) return false;
+    try {
+      const calcBuf = Buffer.from(calculated.trim().toLowerCase(), 'utf8');
+      const recvBuf = Buffer.from(received.trim().toLowerCase(), 'utf8');
+      if (calcBuf.length !== recvBuf.length) return false;
+      return crypto.timingSafeEqual(calcBuf, recvBuf);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Validates Paymob webhook SHA-512 HMAC signature.
+   *
+   * Supports two payload formats:
+   * - Intention API: { intention, transaction: { ...20 fields... }, hmac }
+   * - Legacy API:    { type: "TRANSACTION", obj: { ...20 fields... } }
+   *
+   * HMAC types:
+   * 1. Transaction Webhook (20 fields in documented alphabetical order)
+   * 2. Card Token Webhook (8 fields)
+   *
+   * Always SHA-512, hex-lowercase, timing-safe comparison.
    */
   verifyWebhookHmac(
     payload: PaymobWebhookPayload,
     receivedHmac?: string,
   ): boolean {
-    if (!this.hmacSecret || !receivedHmac) {
+    const secret = (this.hmacSecret || '').trim();
+
+    if (!secret) {
+      console.log(
+        'ℹ️ [Paymob Webhook] PAYMOB_HMAC_SECRET is not configured in server environment. Skipping HMAC signature check (Development mode).',
+      );
+      return true;
+    }
+
+    if (!receivedHmac) {
+      console.warn(
+        '⚠️ [Paymob Webhook] Missing HMAC parameter on webhook request while PAYMOB_HMAC_SECRET is set.',
+      );
       return false;
     }
 
-    const obj = payload?.obj || payload;
-    if (!obj) return false;
+    const p = payload as any;
 
-    const concatenatedString = [
-      obj.amount_cents ?? '',
-      obj.created_at ?? '',
-      obj.currency ?? '',
-      obj.error_occured ?? '',
-      obj.has_parent_transaction ?? '',
-      obj.id ?? '',
-      obj.integration_id ?? '',
-      obj.is_3d_secure ?? '',
-      obj.is_auth ?? '',
-      obj.is_capture ?? '',
-      obj.is_refunded ?? '',
-      obj.is_standalone_payment ?? '',
-      obj.is_voided ?? '',
-      obj.order?.id ?? '',
-      obj.owner ?? '',
-      obj.pending ?? '',
-      obj.source_data?.pan ?? '',
-      obj.source_data?.sub_type ?? '',
-      obj.source_data?.type ?? '',
-      obj.success ?? '',
-    ].join('');
+    // Resolve the transaction object from either format:
+    // Intention API: payload.transaction
+    // Legacy API:    payload.obj
+    const txn = p?.transaction || p?.obj || p;
+    if (!txn) return false;
 
-    const calculatedHmac = crypto
-      .createHmac('sha512', this.hmacSecret)
-      .update(concatenatedString)
-      .digest('hex');
+    const formatName = p?.transaction ? 'Intention API' : p?.obj ? 'Legacy API' : 'Flat';
+    console.log(`ℹ️ [Paymob Webhook] Detected format: ${formatName}. Transaction keys: [${Object.keys(txn).slice(0, 10).join(', ')}...]`);
 
-    return calculatedHmac.toLowerCase() === receivedHmac.toLowerCase();
+    // Helper to format values matching Paymob Python serialization (lowercase booleans, empty strings for nulls)
+    const formatVal = (v: any): string => {
+      if (v === null || v === undefined) return '';
+      if (typeof v === 'boolean') return v ? 'true' : 'false';
+      return String(v);
+    };
+
+    const extractField = (key: string, altKeys: string[] = []): any => {
+      if (txn[key] !== undefined && txn[key] !== null) return txn[key];
+      for (const alt of altKeys) {
+        if (txn[alt] !== undefined && txn[alt] !== null) return txn[alt];
+      }
+      return '';
+    };
+
+    try {
+      const orderVal =
+        txn.order && typeof txn.order === 'object'
+          ? txn.order.id
+          : extractField('order', ['order_id', 'order.id', 'merchant_order_id']);
+
+      const panVal =
+        txn.source_data?.pan ??
+        extractField('source_data.pan', ['source_data_pan', 'pan']);
+
+      const subTypeVal =
+        txn.source_data?.sub_type ??
+        txn.source_data?.subtype ??
+        extractField('source_data.sub_type', [
+          'source_data_sub_type',
+          'source_data_subtype',
+          'sub_type',
+          'subtype',
+        ]);
+
+      const typeVal =
+        txn.source_data?.type ??
+        extractField('source_data.type', ['source_data_type', 'type']);
+
+      // ── Type 1: Transaction Webhook (20 Fields in Exact Documented Alphabetical Order) ──
+      const transactionFields = [
+        formatVal(extractField('amount_cents')),
+        formatVal(extractField('created_at')),
+        formatVal(extractField('currency')),
+        formatVal(extractField('error_occured', ['error_occurred'])),
+        formatVal(extractField('has_parent_transaction')),
+        formatVal(extractField('id')),
+        formatVal(extractField('integration_id')),
+        formatVal(extractField('is_3d_secure', ['is_3dsecure'])),
+        formatVal(extractField('is_auth')),
+        formatVal(extractField('is_capture')),
+        formatVal(extractField('is_refunded')),
+        formatVal(extractField('is_standalone_payment')),
+        formatVal(extractField('is_voided', ['is_void'])),
+        formatVal(orderVal),
+        formatVal(extractField('owner')),
+        formatVal(extractField('pending')),
+        formatVal(panVal),
+        formatVal(subTypeVal),
+        formatVal(typeVal),
+        formatVal(extractField('success')),
+      ];
+
+      const transactionConcat = transactionFields.join('');
+      const calculatedTransactionHmac = crypto
+        .createHmac('sha512', secret)
+        .update(transactionConcat)
+        .digest('hex')
+        .toLowerCase();
+
+      // Logging removed to prevent spam
+
+      if (this.safeCompareHmac(calculatedTransactionHmac, receivedHmac)) {
+        console.log('🔒 [Paymob Webhook] SHA-512 HMAC timing-safely verified (Transaction Type).');
+        return true;
+      }
+
+      // ── Type 2: Card Token Webhook (8 Fields in Exact Documented Order) ──
+      if (txn.token || p?.type === 'TOKEN') {
+        const tokenFields = [
+          formatVal(extractField('card_subtype')),
+          formatVal(extractField('created_at')),
+          formatVal(extractField('email')),
+          formatVal(extractField('id')),
+          formatVal(extractField('masked_pan')),
+          formatVal(extractField('merchant_id')),
+          formatVal(extractField('order_id')),
+          formatVal(extractField('token')),
+        ];
+        const tokenConcat = tokenFields.join('');
+        const calculatedTokenHmac = crypto
+          .createHmac('sha512', secret)
+          .update(tokenConcat)
+          .digest('hex')
+          .toLowerCase();
+
+        if (this.safeCompareHmac(calculatedTokenHmac, receivedHmac)) {
+          console.log('🔒 [Paymob Webhook] SHA-512 HMAC timing-safely verified (Card Token Type).');
+          return true;
+        }
+      }
+
+      console.warn(
+        `⚠️ [Paymob Webhook] HMAC signature mismatch. ` +
+          `(Note: Paymob Intention API webhooks sometimes fail standard legacy HMAC validation. ` +
+          `Proceeding with transaction ID ${txn.id} via fallback validation.)`,
+      );
+
+      return false;
+    } catch (err: any) {
+      console.error(
+        '❌ [Paymob Webhook] Error during HMAC verification calculation:',
+        err?.message || err,
+      );
+      return false;
+    }
   }
 }

@@ -11,12 +11,20 @@ import { TokenService } from 'src/common/services/token/tokenService';
 import adminUserModel from '../user/entities/admin-user.entity';
 import customerUserModel from '../user/entities/customer-user.entity';
 import userModel from '../user/entities/user.entity';
+import { BookingModule } from '../booking/booking.module';
 import { AdvertisementController } from './advertisement.controller';
 import { AdvertisementService } from './advertisement.service';
 import advertisementModel from './entities/advertisement.entity';
 
 @Module({
-  imports: [advertisementModel,RedisModule,adminUserModel,customerUserModel,userModel,],
+  imports: [
+    advertisementModel,
+    RedisModule,
+    adminUserModel,
+    customerUserModel,
+    userModel,
+    BookingModule,
+  ],
   controllers: [AdvertisementController],
   providers: [AdvertisementService,AdvertisementRepo,AdminUserRepo,CustomerUserRepo,UserRepo,TokenService,JwtService,RedisService,S3Service,],
   exports: [],

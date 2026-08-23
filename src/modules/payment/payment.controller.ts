@@ -3,11 +3,17 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
   Query,
+  Req,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ApiBearerAuth,
   ApiHeader,
@@ -176,22 +182,60 @@ export class PaymentController {
   }
 
   @Post('webhook/paymob')
+  @Get('webhook/paymob')
+  @UsePipes(new ValidationPipe({ whitelist: false, forbidNonWhitelisted: false, transform: false }))
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Paymob Payment Gateway Webhook',
+    summary: 'Paymob Payment Gateway Webhook & Redirection Callback (Public)',
     description:
-      'Webhook callback from Paymob. Verifies HMAC security hash and marks online transactions as successful or failed.',
+      'Unprotected public webhook callback from Paymob (accepts POST & GET). Handles both Intention API format ({ intention, transaction, hmac }) and Legacy API format ({ type, obj }).',
   })
   @ApiHeader({ name: 'hmac', description: 'Paymob HMAC signature header', required: false })
   @ApiQuery({ name: 'hmac', description: 'Paymob HMAC signature query parameter', required: false })
-  @ApiResponse({ status: 200, description: 'Webhook processed' })
-  handlePaymobWebhook(
-    @Body() payload: any,
-    @Headers('hmac') hmacHeader?: string,
+  @ApiResponse({ status: 200, description: 'Webhook processed successfully' })
+  async handlePaymobWebhook(
+    @Req() req: Request,
     @Query('hmac') hmacQuery?: string,
+    @Headers('hmac') hmacHeader?: string,
   ) {
-    return this.paymentService.handlePaymobWebhook(
-      payload,
-      hmacHeader || hmacQuery,
+    const rawQuery = (req.query as Record<string, any>) || {};
+    const rawBody = (req.body as Record<string, any>) || {};
+    const rawHeaders = (req.headers as Record<string, any>) || {};
+
+    // Extract HMAC from all possible locations:
+    // - Intention API: body.hmac
+    // - Legacy API: query param ?hmac= or header hmac / x-paymob-signature
+    const extractedHmac =
+      rawBody?.hmac ||
+      hmacQuery ||
+      rawQuery?.hmac ||
+      rawQuery?.HMAC ||
+      hmacHeader ||
+      rawHeaders?.['x-paymob-signature'] ||
+      rawHeaders?.['hmac'] ||
+      rawBody?.obj?.hmac;
+
+    // Detect payload format and build unified payload for the service
+    // Intention API format: { intention, transaction, hmac, paymob_request_id, partner_digest }
+    // Legacy API format:    { type, obj: { ...transaction fields } }
+    const isIntentionApi = Boolean(rawBody?.transaction && rawBody?.intention);
+    const isLegacyApi = Boolean(rawBody?.obj || rawBody?.type === 'TRANSACTION');
+
+    console.log('📩 [Paymob Webhook Controller] Incoming Request:', {
+      method: req.method,
+      url: req.url,
+      contentType: req.headers['content-type'],
+      format: isIntentionApi ? 'INTENTION_API' : isLegacyApi ? 'LEGACY_API' : 'UNKNOWN',
+      bodyKeys: Object.keys(rawBody),
+      queryKeys: Object.keys(rawQuery),
+      extractedHmac: extractedHmac ? `${extractedHmac.slice(0, 12)}...` : 'NONE',
+    });
+
+    // Pass the raw body directly — let the service layer handle format detection
+    // This preserves the nested structure (transaction, intention, obj) needed for HMAC
+    return await this.paymentService.handlePaymobWebhook(
+      rawBody,
+      extractedHmac,
     );
   }
 }

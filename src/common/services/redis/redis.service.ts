@@ -1,12 +1,33 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { type RedisClientType } from 'redis';
+
+const REDIS_OP_TIMEOUT_MS = 2500;
+
+async function withTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  let timer: any;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), REDIS_OP_TIMEOUT_MS);
+  });
+  try {
+    const result = await Promise.race([promise, timeoutPromise]);
+    clearTimeout(timer);
+    return result;
+  } catch (err) {
+    clearTimeout(timer);
+    return fallback;
+  }
+}
 
 @Injectable()
 export class RedisService {
   constructor(
-    @Inject('REDIS_CLIENT') protected readonly client: RedisClientType,
+    @Optional() @Inject('REDIS_CLIENT') protected readonly client?: RedisClientType,
   ) {}
+
+  private isAvailable(): boolean {
+    return Boolean(this.client && (this.client.isReady || this.client.isOpen));
+  }
 
   async setValue({
     key,
@@ -17,23 +38,31 @@ export class RedisService {
     value: string | object;
     ttl?: number;
   }): Promise<void> {
-    const data = typeof value === 'string' ? value : JSON.stringify(value);
-    if (ttl) {
-      await this.client.set(key, data, { EX: ttl });
-    } else {
-      await this.client.set(key, data);
+    if (!this.isAvailable()) return;
+    try {
+      const data = typeof value === 'string' ? value : JSON.stringify(value);
+      if (ttl) {
+        await withTimeout(this.client!.set(key, data, { EX: ttl }), null);
+      } else {
+        await withTimeout(this.client!.set(key, data), null);
+      }
+    } catch {
+      // Redis errors should not interrupt application operations
     }
   }
 
-  getValue = async (key: string) => {
+  getValue = async (key: string): Promise<any> => {
+    if (!this.isAvailable()) return null;
     try {
+      const raw = await withTimeout(this.client!.get(key), null);
+      if (!raw) return null;
       try {
-        return JSON.parse((await this.client.get(key)) as string);
-      } catch (error) {
-        return await this.client.get(key);
+        return JSON.parse(raw as string);
+      } catch {
+        return raw;
       }
-    } catch (error) {
-      console.log('error to get operation', error);
+    } catch {
+      return null;
     }
   };
 
@@ -46,8 +75,9 @@ export class RedisService {
     value: string | object;
     ttl: number;
   }): Promise<number> {
+    if (!this.isAvailable()) return 0;
     try {
-      const exists = await this.client.exists(key);
+      const exists = await withTimeout(this.client!.exists(key), 0);
       if (!exists) return 0;
       await this.setValue({ key, value, ttl });
       return 1;
@@ -57,24 +87,29 @@ export class RedisService {
   }
 
   async ttl(key: string): Promise<number> {
+    if (!this.isAvailable()) return -2;
     try {
-      return await this.client.ttl(key);
+      const res = await withTimeout(this.client!.ttl(key), -2);
+      return typeof res === 'number' ? res : -2;
     } catch {
       return -2;
     }
   }
 
   async exist(key: string): Promise<number> {
+    if (!this.isAvailable()) return 0;
     try {
-      return await this.client.exists(key);
+      const res = await withTimeout(this.client!.exists(key), 0);
+      return typeof res === 'number' ? res : 0;
     } catch {
       return 0;
     }
   }
 
   async expire({ key, ttl }: { key: string; ttl: number }): Promise<boolean> {
+    if (!this.isAvailable()) return false;
     try {
-      const res = await this.client.expire(key, ttl);
+      const res = await withTimeout<any>(this.client!.expire(key, ttl), false);
       return Boolean(res);
     } catch {
       return false;
@@ -82,18 +117,22 @@ export class RedisService {
   }
 
   async delKey(key: string | string[]): Promise<number> {
+    if (!this.isAvailable()) return 0;
     try {
       if (!key || (Array.isArray(key) && key.length === 0)) return 0;
-      return await this.client.del(key);
+      const res = await withTimeout(this.client!.del(key), 0);
+      return typeof res === 'number' ? res : 0;
     } catch {
       return 0;
     }
   }
 
   async Keys(pattern: string): Promise<string[]> {
+    if (!this.isAvailable()) return [];
     try {
       const queryPattern = pattern.endsWith('*') ? pattern : `${pattern}*`;
-      return await this.client.keys(queryPattern);
+      const res = await withTimeout(this.client!.keys(queryPattern), []);
+      return Array.isArray(res) ? res : [];
     } catch {
       return [];
     }
@@ -126,19 +165,25 @@ export class RedisService {
   }
 
   async inc(key: string): Promise<number> {
+    if (!this.isAvailable()) return 0;
     try {
-      return await this.client.incr(key);
+      const res = await withTimeout(this.client!.incr(key), 0);
+      return typeof res === 'number' ? res : 0;
     } catch {
       return 0;
     }
   }
 
   async acquireLock(key: string, ttlSeconds: number = 5): Promise<boolean> {
+    if (!this.isAvailable()) return true;
     try {
-      const res = await this.client.set(key, 'locked', {
-        NX: true,
-        EX: ttlSeconds,
-      });
+      const res = await withTimeout(
+        this.client!.set(key, 'locked', {
+          NX: true,
+          EX: ttlSeconds,
+        }),
+        'OK',
+      );
       return res === 'OK';
     } catch {
       // If redis is unavailable or errors, return true so system gracefully falls back
@@ -147,8 +192,10 @@ export class RedisService {
   }
 
   async releaseLock(key: string): Promise<number> {
+    if (!this.isAvailable()) return 0;
     try {
-      return await this.client.del(key);
+      const res = await withTimeout(this.client!.del(key), 0);
+      return typeof res === 'number' ? res : 0;
     } catch {
       return 0;
     }
@@ -156,3 +203,4 @@ export class RedisService {
 }
 
 export default RedisService;
+

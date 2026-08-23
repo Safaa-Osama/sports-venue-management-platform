@@ -33,6 +33,19 @@ import type { UserDocument } from '../user/entities/user.entity';
 @Controller('booking')
 export class BookingController {
   constructor(private readonly bookingService: BookingService) {}
+  
+  @Get('availability/:venueId')
+  @ApiOperation({
+    summary: 'Get Venue Availability',
+    description: 'Returns a list of booked or held slots for a venue',
+  })
+  async getAvailability(
+    @Param('venueId') venueId: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return await this.bookingService.getAvailability(venueId, startDate, endDate);
+  }
 
   @Post()
   @ApiOperation({

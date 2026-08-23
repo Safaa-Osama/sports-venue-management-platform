@@ -46,6 +46,6 @@ import bookingModel from './entities/booking.entity';
     AdminUserRepo,
     RedisService,
   ],
-  exports: [],
+  exports: [BookingGateway],
 })
 export class BookingModule { }

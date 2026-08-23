@@ -85,7 +85,7 @@ abstract class BaseRepo<TDocument> {
     options?: QueryOptions<TDocument>;
   }): Promise<HydratedDocument<TDocument> | null> {
     return this.Model.findOneAndUpdate(filter, update, {
-      new: true,
+      returnDocument: 'after',
       ...options,
     });
   }
@@ -99,7 +99,10 @@ abstract class BaseRepo<TDocument> {
     update: UpdateQuery<TDocument>;
     options?: QueryOptions<TDocument>;
   }): Promise<HydratedDocument<TDocument> | null> {
-    return this.Model.findByIdAndUpdate(id, update, { new: true, ...options });
+    return this.Model.findByIdAndUpdate(id, update, {
+      returnDocument: 'after',
+      ...options,
+    });
   }
 
   async findOneAndDelete({

@@ -90,4 +90,15 @@ export class BookingGateway
       booking,
     });
   }
+
+  emitAdvertisementsUpdated(action?: string, adId?: string) {
+    if (this.server) {
+      this.server.emit('advertisements_updated', {
+        action: action || 'refresh',
+        adId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
 }
+

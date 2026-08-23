@@ -16,6 +16,7 @@ import paymentModel from './entities/payment.entity';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
 import { PaymobService } from 'src/common/integration/paymob/paymob.service';
+import { BookingGateway } from '../booking/booking.gateway';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { PaymobService } from 'src/common/integration/paymob/paymob.service';
   providers: [
     PaymentService,
     PaymobService,
+    BookingGateway,
     PaymentRepo,
     BookingRepo,
     VenueRepo,

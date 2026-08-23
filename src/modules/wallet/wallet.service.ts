@@ -42,21 +42,55 @@ export class WalletService {
   ) {
     const userObjId =
       typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
-    let wallet = await this.walletRepo.findOne({
-      filter: { userId },
+
+    try {
+      const wallet = await this.walletRepo.findOneAndUpdate({
+        filter: { userId: userObjId },
+        update: {
+          $setOnInsert: {
+            userId: userObjId,
+            balance: 0,
+          },
+        },
+        options: {
+          upsert: true,
+          new: true,
+          setDefaultsOnInsert: true,
+          session,
+        },
+      });
+
+      if (wallet) {
+        return wallet;
+      }
+    } catch (error: any) {
+      if (error?.code === 11000 || error?.name === 'MongoServerError') {
+        const existing = await this.walletRepo.findOne({
+          filter: { userId: userObjId },
+          options: { session },
+        });
+        if (existing) {
+          return existing;
+        }
+      }
+      throw error;
+    }
+
+    const existing = await this.walletRepo.findOne({
+      filter: { userId: userObjId },
       options: { session },
     });
-
-    if (!wallet) {
-      wallet = await this.walletRepo.create(
-        {
-          userId: userObjId,
-          balance: 0,
-        },
-        { session },
-      );
+    if (existing) {
+      return existing;
     }
-    return wallet;
+
+    return this.walletRepo.create(
+      {
+        userId: userObjId,
+        balance: 0,
+      },
+      { session },
+    );
   }
 
   async getWalletByUserId(userId: string) {
@@ -71,18 +105,26 @@ export class WalletService {
     if (!Types.ObjectId.isValid(body.userId)) {
       throw new BadRequestException('Invalid user ID');
     }
+    const userObjId = new Types.ObjectId(body.userId);
     const existing = await this.walletRepo.findOne({
-      filter: { userId: body.userId },
+      filter: { userId: userObjId },
     });
     if (existing) {
       throw new ConflictException('Wallet already exists for this user');
     }
-    const wallet = await this.walletRepo.create({
-      userId: new Types.ObjectId(body.userId),
-      balance: 0,
-    });
+    try {
+      const wallet = await this.walletRepo.create({
+        userId: userObjId,
+        balance: 0,
+      });
 
-    return wallet;
+      return wallet;
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        throw new ConflictException('Wallet already exists for this user');
+      }
+      throw error;
+    }
   }
 
   async deposit(
@@ -266,12 +308,14 @@ export class WalletService {
     const search: any = {};
 
     if (user.role !== RoleEnum.admin && user.role !== RoleEnum.superAdmin) {
-      search.userId = new Types.ObjectId(user._id as any);
+      const wallet = await this.getOrCreateWallet(user._id);
+      search.walletId = wallet._id;
     } else if (queryDto.userId) {
       if (!Types.ObjectId.isValid(queryDto.userId)) {
         throw new BadRequestException('Invalid user ID filter');
       }
-      search.userId = new Types.ObjectId(queryDto.userId);
+      const wallet = await this.getOrCreateWallet(queryDto.userId);
+      search.walletId = wallet._id;
     }
 
     if (queryDto.type) {

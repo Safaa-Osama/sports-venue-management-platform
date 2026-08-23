@@ -51,6 +51,50 @@ export class BookingService {
     @InjectConnection() private readonly connection: Connection,
   ) { }
 
+  async getAvailability(venueId: string, startDate?: string, endDate?: string) {
+    const filter: any = {
+      venueId,
+      status: {
+        $in: [BookingStatusEnum.confirmed, BookingStatusEnum.pending],
+      },
+    };
+
+    if (startDate || endDate) {
+      filter.date = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setUTCHours(0, 0, 0, 0);
+        filter.date.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setUTCHours(23, 59, 59, 999);
+        filter.date.$lte = end;
+      }
+    }
+
+    const bookings = await this.bookingRepo.find({ filter });
+    const now = new Date();
+
+    const validOverlaps = bookings.filter((b) => {
+      if (
+        b.status === BookingStatusEnum.pending &&
+        b.expiresAt &&
+        new Date(b.expiresAt) <= now
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    return validOverlaps.map((b) => ({
+      date: b.date,
+      startTime: b.startTime,
+      endTime: b.endTime,
+      status: b.status,
+    }));
+  }
+
   private computeRequestFingerprint(body: CreateBookingDto): string {
     const canonical = {
       venueId: body.venueId.toString(),
@@ -816,7 +860,11 @@ export class BookingService {
     const hoursDifference =
       (bookingDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
 
-    if (hoursDifference < CANCELLATION_DEADLINE_HOURS && !isStaffOrAdmin) {
+    if (
+      booking.status !== BookingStatusEnum.pending &&
+      hoursDifference < CANCELLATION_DEADLINE_HOURS &&
+      !isStaffOrAdmin
+    ) {
       throw new BadRequestException(
         `Bookings can only be cancelled at least ${CANCELLATION_DEADLINE_HOURS} hours prior to slot time.`,
       );
