@@ -1,6 +1,8 @@
 import { MongooseModule, Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
+import { ref } from 'process';
 import { CustomerStatusEnum, ProviderEnum } from 'src/common/enums/userEnum';
+import { Wallet } from 'src/modules/wallet/entities/wallet.entity';
 
 export type CustomerUserDocument = HydratedDocument<CustomerUser>;
 
@@ -49,8 +51,8 @@ export class CustomerUser {
   @Prop({ type: String })
   position?: string;
 
-  @Prop({ type: Number, default: 0 })
-  walletBalance: number;
+  @Prop({ type: Types.ObjectId, ref: Wallet.name })
+  walletId: Types.ObjectId;
 
   @Prop({ type: String, enum: CustomerStatusEnum, default: CustomerStatusEnum.active, })
   status: CustomerStatusEnum;

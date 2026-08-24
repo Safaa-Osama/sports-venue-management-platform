@@ -22,7 +22,7 @@ export class UserController {
     status: 200,
     description: 'List of customers retrieved successfully',
   })
-  getAllCustomers() {
+  getAllCustomers(): Promise<any> {
     return this.userService.getAllCustomers();
   }
 

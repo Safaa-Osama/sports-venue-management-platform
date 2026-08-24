@@ -1,17 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsDateString,
-  IsEnum,
-  IsInt,
-  IsMongoId,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsDateString,IsEnum,IsInt,IsMongoId,IsNotEmpty,IsNumber, IsOptional, IsString, Max, Min, } from 'class-validator';
 import { TransactionTypeEnum } from 'src/common/enums/walletEnum';
 
 export class CreateWalletDto {
@@ -25,13 +14,13 @@ export class CreateWalletDto {
 }
 
 export class DepositWalletDto {
-  @ApiPropertyOptional({
-    description: 'MongoDB ObjectId of the user (Admin deposits on behalf of user)',
+  @ApiProperty({
+    description: 'MongoDB ObjectId of the target customer receiving the deposit',
     example: '64e8b0a1f2b4c10012345678',
   })
-  @IsOptional()
-  @IsMongoId()
-  userId?: string;
+  @IsMongoId({ message: 'Target user ID must be a valid MongoDB ObjectId' })
+  @IsNotEmpty({ message: 'Target user ID is required for deposit' })
+  userId: string;
 
   @ApiProperty({
     description: 'Top-up deposit amount (minimum 100)',

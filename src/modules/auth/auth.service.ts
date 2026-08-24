@@ -108,7 +108,6 @@ export class AuthService {
         position,
         avatar: uploadedImage,
         provider: ProviderEnum.system,
-        walletBalance: 0,
       });
 
       if (!customer) {
@@ -209,8 +208,9 @@ export class AuthService {
       },
     });
 
-    return { admin, accessToken, refreshToken };
+    return { admin: this.sanitizeUser(admin), accessToken, refreshToken };
   }
+
 
   async createAdminUser(body: CreateAdminDto): Promise<any> {
     const { email, password, userName, role } = body;
@@ -232,7 +232,7 @@ export class AuthService {
     });
 
     if (!admin) {
-      throw new BadRequestException('Failed to create admin user');
+      throw new BadRequestException('Failed to create admin ');
     }
 
     const uuid = randomUUID();
@@ -267,9 +267,10 @@ export class AuthService {
       },
     });
 
-    return { admin, accessToken, refreshToken };
+    return { admin: this.sanitizeUser(admin), accessToken, refreshToken };
   }
 
+  
   async signUpWithGoogle(body: GoogleLoginDto) {
     const { idToken } = body;
 
@@ -310,7 +311,6 @@ export class AuthService {
         emailConfirmed: payload.email_verified,
         avatar: picture,
         provider: ProviderEnum.google,
-        walletBalance: 0,
       });
 
       if (!user) {

@@ -1,25 +1,12 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-  Optional,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional, } from '@nestjs/common';
 import { Types } from 'mongoose';
-import {
-  AdvertisementPositionEnum,
-  AdvertisementStatusEnum,
-} from 'src/common/enums/advertisementEnum';
+import { AdvertisementPositionEnum, AdvertisementStatusEnum, } from 'src/common/enums/advertisementEnum';
 import { AdvertisementRepo } from 'src/common/repositories/advertisement-repo';
 import { RedisService } from 'src/common/services/redis/redis.service';
 import { S3Service } from 'src/common/services/s3Service/s3.service';
 import { BookingGateway } from '../booking/booking.gateway';
 import {
-  BulkReorderAdvertisementDto,
-  CreateAdvertisementDto,
-  GetDashboardAdvertisementsDto,
-  QueryAdvertisementDto,
-  ScheduleAdvertisementDto,
-  UpdateAdvertisementDto,
+  BulkReorderAdvertisementDto, CreateAdvertisementDto, GetDashboardAdvertisementsDto, QueryAdvertisementDto, ScheduleAdvertisementDto, UpdateAdvertisementDto,
 } from './dto/advertisement.dto';
 import { AdvertisementDocument } from './entities/advertisement.entity';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
@@ -34,7 +21,7 @@ export class AdvertisementService {
     private readonly s3Service: S3Service,
     private readonly redisService: RedisService,
     @Optional() private readonly bookingGateway?: BookingGateway,
-  ) {}
+  ) { }
 
   /**
    * Helper to format an advertisement document with a resolved S3 presigned URL.
@@ -154,7 +141,7 @@ export class AdvertisementService {
       return await this.formatAdvertisementWithImageUrl(createdAd);
     } catch (error) {
       if (uploadedImageKey) {
-        await this.s3Service.deleteFile(uploadedImageKey).catch(() => {});
+        await this.s3Service.deleteFile(uploadedImageKey).catch(() => { });
       }
       throw error;
     }
@@ -229,7 +216,7 @@ export class AdvertisementService {
       }
 
       if (imageFile && ad.image && newlyUploadedKey) {
-        await this.s3Service.deleteFile(ad.image).catch(() => {});
+        await this.s3Service.deleteFile(ad.image).catch(() => { });
       }
 
       await this.invalidateDashboardCache();
@@ -237,7 +224,7 @@ export class AdvertisementService {
     } catch (error) {
       // Rollback newly uploaded file on failure
       if (newlyUploadedKey) {
-        await this.s3Service.deleteFile(newlyUploadedKey).catch(() => {});
+        await this.s3Service.deleteFile(newlyUploadedKey).catch(() => { });
       }
       throw error;
     }
@@ -259,7 +246,7 @@ export class AdvertisementService {
     await this.advertisementRepo.findByIdAndDelete(id);
 
     if (ad.image) {
-      await this.s3Service.deleteFile(ad.image).catch(() => {});
+      await this.s3Service.deleteFile(ad.image).catch(() => { });
     }
 
     await this.invalidateDashboardCache();

@@ -17,12 +17,21 @@ export class UserService {
     private readonly s3Service: S3Service,
   ) { }
 
-  async getAllCustomers() {
-    return this.customerUserRepo.find();
+  async getAllCustomers(): Promise<any> {
+    const customers = await this.customerUserRepo.find({
+      projection: { password: 0 },
+    });
+    return customers.map((c) => {
+      const obj = c.toObject ? c.toObject() : { ...c };
+      const { password, ...withoutPassword } = obj as any;
+      return withoutPassword;
+    });
   }
 
-  async getAllAdmins() {
-    const admins = await this.adminUserRepo.find();
+  async getAllAdmins(): Promise<any> {
+    const admins = await this.adminUserRepo.find({
+      projection: { password: 0 },
+    });
     return admins.map((admin) => {
       const obj = admin.toObject ? admin.toObject() : { ...admin };
       const { password, ...withoutPassword } = obj as AdminUser;
@@ -166,8 +175,9 @@ export class UserService {
       throw new NotFoundException('Admin user not found');
     }
 
-    const adminObj = updatedAdmin.toObject()
+    const adminObj = updatedAdmin.toObject();
+    const { password: _, ...withoutPassword } = adminObj;
 
-    return adminObj;
+    return withoutPassword;
   }
 }

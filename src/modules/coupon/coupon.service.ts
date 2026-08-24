@@ -33,15 +33,16 @@ export class CouponService {
       isActive,
     } = body;
 
+    const normalizedCode = code.trim().toUpperCase();
     if (
-      await this.couponRepo.findOne({ filter: { code: code.toLowerCase() } })
+      await this.couponRepo.findOne({ filter: { code: normalizedCode } })
     ) {
       throw new BadRequestException('Coupon already exists');
     }
 
     const coupon = await this.couponRepo.create({
       createdBy: user._id,
-      code: code.toUpperCase(),
+      code: normalizedCode,
       discountType,
       discount,
       startDate,
@@ -78,7 +79,7 @@ export class CouponService {
     }
 
     if (code) {
-      coupon.code = code.toLowerCase();
+      coupon.code = code.trim().toUpperCase();
     }
     if (discountType) {
       coupon.discountType = discountType;
@@ -119,11 +120,12 @@ export class CouponService {
     return { message: 'Coupon deleted successfully' };
   }
 
-  async validateCoupon(body: ValidateCouponDto, user: AdminUserDocument) {
+  async validateCoupon(body: ValidateCouponDto) {
     const { code, bookingAmount } = body;
+    const normalizedCode = code?.trim().toUpperCase();
 
     const coupon = await this.couponRepo.findOne({
-      filter: { code: code.toUpperCase(), createdBy: user._id },
+      filter: { code: normalizedCode },
     });
     if (!coupon) {
       throw new NotFoundException('Coupon code not found');

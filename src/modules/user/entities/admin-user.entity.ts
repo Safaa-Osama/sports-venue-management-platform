@@ -18,7 +18,7 @@ export class AdminUser {
   @Prop({type: String, required: true, unique: true, lowercase: true})
   email: string;
 
-  @Prop({ type: String, required: true })
+  @Prop({ type: String, required: true, select: false })
   password: string;
 
   @Prop({ type: String, enum: RoleEnum, default: RoleEnum.admin })

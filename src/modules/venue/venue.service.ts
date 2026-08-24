@@ -344,9 +344,7 @@ export class VenueService {
       update: updateData,
     });
 
-    const updatedVenueObj = updatedVenue?.toObject
-      ? updatedVenue.toObject()
-      : updatedVenue;
+    const updatedVenueObj = updatedVenue?.toObject? updatedVenue.toObject(): updatedVenue;
     return updatedVenueObj
       ? {
           ...updatedVenueObj,

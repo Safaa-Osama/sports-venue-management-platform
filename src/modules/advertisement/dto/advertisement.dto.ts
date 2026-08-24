@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import { ArrayNotEmpty, IsArray, IsDate, IsEnum, IsIn, IsInt, IsMongoId, IsNotEmpty, IsOptional, IsString, IsUrl, Max, MaxLength, Min, registerDecorator, ValidateNested, ValidationArguments, ValidationOptions } from 'class-validator';
 import { AdvertisementPositionEnum, AdvertisementStatusEnum } from 'src/common/enums/advertisementEnum';
 import { IsAfterOrEqualDate } from 'src/common/decorator/ad.decorator';
+import { AtLeastOne } from 'src/common/decorator/AtLeastOne.decorator';
 
 
 
@@ -67,6 +68,7 @@ export class CreateAdvertisementDto {
   priority?: number;
 }
 
+@AtLeastOne(["title", "description", "linkUrl", "position", "status", "startDate", "endDate", "displayDuration", "durationMinutes", "priority"])
 export class UpdateAdvertisementDto extends PartialType(
   CreateAdvertisementDto,
 ) {}

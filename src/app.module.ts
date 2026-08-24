@@ -30,7 +30,7 @@ import { ContactModule } from './modules/contact/contact.module';
     ScheduleModule.forRoot(),
 
     // Mongo DB
-    MongooseModule.forRoot(process.env.DB_LOCAL!, {
+    MongooseModule.forRoot(process.env.DB_URI_ATLAS!, {
       onConnectionCreate: (connection: Connection) => {
         connection.on('connected', () => console.log('database connected'));
         connection.on('open', () => console.log('database open'));

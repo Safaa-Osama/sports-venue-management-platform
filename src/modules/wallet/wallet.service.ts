@@ -1,26 +1,14 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { ClientSession, Types } from 'mongoose';
 import { RoleEnum } from 'src/common/enums/userEnum';
-import {
-  TransactionStatusEnum,
-  TransactionTypeEnum,
-} from 'src/common/enums/walletEnum';
+import { TransactionStatusEnum, TransactionTypeEnum, } from 'src/common/enums/walletEnum';
 import { WalletRepo } from 'src/common/repositories/wallet-repo';
 import { WalletTransactionRepo } from 'src/common/repositories/wallet-transaction-repo';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
 import type { UserDocument } from '../user/entities/user.entity';
-import {
-  AdminDeductWalletDto,
-  CreateWalletDto,
-  DepositWalletDto,
-  GetTransactionsDto,
-  UserDeductWalletDto,
-} from './dto/wallet.dto';
+import { AdminDeductWalletDto, CreateWalletDto, DepositWalletDto, GetTransactionsDto, UserDeductWalletDto, } from './dto/wallet.dto';
+
 
 @Injectable()
 export class WalletService {
@@ -56,7 +44,7 @@ export class WalletService {
           upsert: true,
           new: true,
           setDefaultsOnInsert: true,
-          session,
+          session
         },
       });
 
@@ -130,14 +118,18 @@ export class WalletService {
   async deposit(
     dto: DepositWalletDto,
     type: TransactionTypeEnum = TransactionTypeEnum.DEPOSIT,
-    user?: UserDocument,
+    adminUser?: AdminUserDocument | UserDocument,
     session?: ClientSession,
   ) {
-    const { amount } = dto;
-    const targetUserId = user?._id || dto.userId;
-    if (!targetUserId) {
-      throw new BadRequestException('User ID is required for deposit');
+    const { amount, userId } = dto;
+    if (!userId || !Types.ObjectId.isValid(userId)) {
+      throw new BadRequestException('A valid target user ID is required for deposit');
     }
+    if (!amount || amount <= 0) {
+      throw new BadRequestException('Deposit amount must be greater than zero');
+    }
+
+    const targetUserId = new Types.ObjectId(userId);
     const wallet = await this.getOrCreateWallet(targetUserId, session);
     const balanceBefore = wallet.balance;
 
@@ -152,20 +144,38 @@ export class WalletService {
     }
 
     const receiptNumber = this.generateReceiptNumber();
-    const transaction = await this.walletTransactionRepo.create(
-      {
-        walletId: updatedWallet._id,
-        type,
-        status: TransactionStatusEnum.SUCCESS,
-        amount,
-        balanceBefore,
-        balanceAfter: updatedWallet.balance,
-        receiptNumber,
-        referenceId: dto.referenceId,
-        description: dto.description || 'Wallet deposit top-up',
-      },
-      { session },
-    );
+    let transaction: any;
+    try {
+      transaction = await this.walletTransactionRepo.create(
+        {
+          walletId: updatedWallet._id,
+          type,
+          status: TransactionStatusEnum.SUCCESS,
+          amount,
+          balanceBefore,
+          balanceAfter: updatedWallet.balance,
+          receiptNumber,
+          referenceId: dto.referenceId,
+          description:
+            dto.description ||
+            (type === TransactionTypeEnum.BOOKING_REFUND
+              ? 'Booking refund'
+              : adminUser
+                ? `Admin deposit by ${adminUser.userName || adminUser._id}`
+                : 'Wallet deposit top-up'),
+        },
+        { session },
+      );
+    } catch (txnErr) {
+      if (!session) {
+        // Compensating rollback if transaction ledger write fails outside a replica set
+        await this.walletRepo.findOneAndUpdate({
+          filter: { _id: updatedWallet._id },
+          update: { $inc: { balance: -amount } },
+        });
+      }
+      throw txnErr;
+    }
 
     return { updatedWallet, transaction };
   }

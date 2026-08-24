@@ -1,17 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  Patch,
-  Post,
-  Query,
-  UploadedFile,
-  UseInterceptors,
-} from '@nestjs/common';
+import { Body, Controller, Delete,Get,HttpCode,HttpStatus,Param,Patch,Post,Query,UploadedFile,UseInterceptors,} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { auth } from 'src/common/decorator/auth.decorator';
 import { User } from 'src/common/decorator/user.decorator';
@@ -19,16 +6,7 @@ import { MulterEnum, StoreEnum } from 'src/common/enums/multerEnum';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { multer_cloud } from 'src/common/interceptor/multer';
 import { AdvertisementService } from './advertisement.service';
-import {
-  BulkReorderAdvertisementDto,
-  CreateAdvertisementDto,
-  GetDashboardAdvertisementsDto,
-  QueryAdvertisementDto,
-  ScheduleAdvertisementDto,
-  UpdateAdvertisementDto,
-  UpdateAdvertisementPriorityDto,
-  UpdateAdvertisementStatusDto,
-} from './dto/advertisement.dto';
+import {BulkReorderAdvertisementDto,CreateAdvertisementDto,GetDashboardAdvertisementsDto,QueryAdvertisementDto,ScheduleAdvertisementDto,UpdateAdvertisementDto,UpdateAdvertisementPriorityDto,UpdateAdvertisementStatusDto,} from './dto/advertisement.dto';
 
 @Controller('advertisements')
 export class AdvertisementController {

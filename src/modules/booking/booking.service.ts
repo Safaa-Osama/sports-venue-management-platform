@@ -788,7 +788,7 @@ export class BookingService {
       limit,
       search,
       sort: { createdAt: -1 },
-      populate: { path: 'userId', select: 'name email phone' },
+      populate: { path: 'userId', select: 'userName email phone' },
     });
   }
 
@@ -798,7 +798,7 @@ export class BookingService {
       options: {
         populate: [
           { path: 'venueId', select: 'venueName address images' },
-          { path: 'userId', select: 'name phone' },
+          { path: 'userId', select: 'userName phone' },
         ],
       },
     });
@@ -955,7 +955,7 @@ export class BookingService {
       options: {
         populate: [
           { path: 'venueId', select: 'venueName address' },
-          { path: 'userId', select: 'name email phone' },
+          { path: 'userId', select: 'userName email phone' },
         ],
       },
     });

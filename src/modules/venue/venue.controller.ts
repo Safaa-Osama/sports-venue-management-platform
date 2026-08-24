@@ -1,42 +1,20 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Query,
-  UploadedFiles,
-  UseInterceptors,
-} from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
-  ApiOperation,
-  ApiParam,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFiles, UseInterceptors, } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiResponse, ApiTags, } from '@nestjs/swagger';
 import { auth } from 'src/common/decorator/auth.decorator';
 import { User } from 'src/common/decorator/user.decorator';
 import { MulterEnum, StoreEnum } from 'src/common/enums/multerEnum';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { multer_cloud } from 'src/common/interceptor/multer';
 import type { AdminUserDocument } from '../user/entities/admin-user.entity';
-import {
-  CreateVenueDto,
-  GetVenuesQueryDto,
-  UpdateVenueDto,
-} from './dto/venue.dto';
+import { CreateVenueDto, GetVenuesQueryDto, UpdateVenueDto, } from './dto/venue.dto';
 import { VenueService } from './venue.service';
+
 
 @ApiTags('Venues')
 @Controller('venue')
 export class VenueController {
-  constructor(private readonly venueService: VenueService) {}
+  constructor(private readonly venueService: VenueService) { }
 
   @Get()
   @ApiOperation({

@@ -93,6 +93,8 @@ export class CouponController {
   @ApiResponse({ status: 400, description: 'Coupon is invalid, expired, or maximum uses reached' })
   @auth({
     roles: [
+      RoleEnum.customer,
+      RoleEnum.user,
       RoleEnum.admin,
       RoleEnum.superAdmin,
       RoleEnum.owner,
@@ -101,9 +103,8 @@ export class CouponController {
   })
   async validateCoupon(
     @Body() body: ValidateCouponDto,
-    @User() user: AdminUserDocument,
   ) {
-    return await this.couponService.validateCoupon(body, user);
+    return await this.couponService.validateCoupon(body);
   }
 
   @Patch(':id')

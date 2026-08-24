@@ -1,13 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  IsDate,
-  IsDateString,
-  IsEnum,
-  IsInt,
-  IsMongoId,
-  IsNotEmpty,
-  IsOptional,
+import { IsDate, IsDateString, IsEnum, IsInt, IsMongoId, IsNotEmpty, IsOptional,
   IsString,
   Max,
   Min,
@@ -22,6 +15,7 @@ import {
   PaymentMethodEnum,
   PaymentStatusEnum,
 } from 'src/common/enums/bookingEnum';
+
 
 @ValidatorConstraint({ name: 'isGreaterThan', async: false })
 export class IsGreaterThanConstraint implements ValidatorConstraintInterface {

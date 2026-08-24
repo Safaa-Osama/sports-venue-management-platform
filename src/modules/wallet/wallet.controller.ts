@@ -1,31 +1,19 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags, } from '@nestjs/swagger';
 import { auth } from 'src/common/decorator/auth.decorator';
 import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { TransactionTypeEnum } from 'src/common/enums/walletEnum';
 import type { UserDocument } from '../user/entities/user.entity';
 import type { AdminUserDocument } from '../user/entities/admin-user.entity';
-import {
-  AdminDeductWalletDto,
-  CreateWalletDto,
-  DepositWalletDto,
-  GetTransactionsDto,
-  UserDeductWalletDto,
-} from './dto/wallet.dto';
+import { AdminDeductWalletDto, CreateWalletDto, DepositWalletDto, GetTransactionsDto, UserDeductWalletDto, } from './dto/wallet.dto';
 import { WalletService } from './wallet.service';
 
 @ApiTags('Wallet')
 @ApiBearerAuth('JWT-auth')
 @Controller('wallet')
 export class WalletController {
-  constructor(private readonly walletService: WalletService) {}
+  constructor(private readonly walletService: WalletService) { }
 
   @Get(':id')
   @ApiOperation({
@@ -105,14 +93,14 @@ export class WalletController {
 
   @Post('deposit')
   @ApiOperation({
-    summary: 'Deposit Funds to Wallet (Admin / SuperAdmin)',
+    summary: 'Deposit Funds to Customer Wallet (Admin / SuperAdmin)',
     description:
-      'Deposits funds to a customer or admin wallet (e.g. after cash collection at reception or promotional credit).',
+      'Deposits funds to a target customer wallet after cash collection at reception or manual credit.',
   })
   @ApiResponse({ status: 200, description: 'Deposit successful, balance updated' })
   @ApiResponse({ status: 400, description: 'Invalid amount or user ID' })
   @auth({ roles: [RoleEnum.admin, RoleEnum.superAdmin] })
-  async deposit(@Body() body: DepositWalletDto, @User() user: UserDocument) {
+  async deposit(@Body() body: DepositWalletDto, @User() user: AdminUserDocument) {
     return this.walletService.deposit(body, TransactionTypeEnum.DEPOSIT, user);
   }
 
