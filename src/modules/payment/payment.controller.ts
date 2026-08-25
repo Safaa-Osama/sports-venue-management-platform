@@ -184,7 +184,6 @@ export class PaymentController {
   @Post('webhook/paymob')
   @Get('webhook/paymob')
   @UsePipes(new ValidationPipe({ whitelist: false, forbidNonWhitelisted: false, transform: false }))
-  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Paymob Payment Gateway Webhook & Redirection Callback (Public)',
     description:

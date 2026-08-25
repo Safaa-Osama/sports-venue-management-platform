@@ -24,6 +24,9 @@ export class Booking {
   @Prop({ type: Types.ObjectId, ref: Venue.name, required: true })
   venueId: Types.ObjectId;
 
+  @Prop({ type: String, index: true })
+  groupId?: string;
+
   @Prop({ type: Date, required: true })
   date: Date;
 
@@ -80,6 +83,15 @@ export class Booking {
 
 export const BookingSchema = SchemaFactory.createForClass(Booking);
 BookingSchema.index({ userId: 1, idempotencyKey: 1 }, { sparse: true });
+BookingSchema.index(
+  { venueId: 1, date: 1, startTime: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: [BookingStatusEnum.confirmed, BookingStatusEnum.pending] },
+    },
+  },
+);
 
 const BookingModel = MongooseModule.forFeature([
   { name: Booking.name, schema: BookingSchema },

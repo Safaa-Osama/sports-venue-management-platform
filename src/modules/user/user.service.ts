@@ -9,6 +9,8 @@ import { AdminUser } from './entities/admin-user.entity';
 import { CustomerUserDocument } from './entities/customer-user.entity';
 
 
+import { CustomerStatusEnum, ProviderEnum } from 'src/common/enums/userEnum';
+
 @Injectable()
 export class UserService {
   constructor(
@@ -16,6 +18,20 @@ export class UserService {
     private readonly adminUserRepo: AdminUserRepo,
     private readonly s3Service: S3Service,
   ) { }
+
+  async createCustomer(dto: { userName: string; phone: string }) {
+    const existing = await this.customerUserRepo.findOne({ filter: { phone: dto.phone } });
+    if (existing) {
+      throw new BadRequestException('Customer with this phone already exists');
+    }
+    const customer = await this.customerUserRepo.create({
+      userName: dto.userName,
+      phone: dto.phone,
+      status: CustomerStatusEnum.active,
+      provider: ProviderEnum.system,
+    });
+    return customer;
+  }
 
   async getAllCustomers(): Promise<any> {
     const customers = await this.customerUserRepo.find({

@@ -1,9 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDate, IsDateString, IsEnum, IsInt, IsMongoId, IsNotEmpty, IsOptional,
+import {
+  IsArray,
+  IsDate,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsMongoId,
+  IsNotEmpty,
+  IsOptional,
   IsString,
   Max,
   Min,
+  ValidateNested,
   registerDecorator,
   ValidationArguments,
   ValidationOptions,
@@ -22,6 +31,9 @@ export class IsGreaterThanConstraint implements ValidatorConstraintInterface {
   validate(propertyValue: any, args: ValidationArguments) {
     const [relatedPropertyName] = args.constraints;
     const relatedValue = (args.object as any)[relatedPropertyName];
+    if (propertyValue === undefined || relatedValue === undefined) {
+      return true;
+    }
     return (
       typeof propertyValue === 'number' &&
       typeof relatedValue === 'number' &&
@@ -50,23 +62,7 @@ export function IsGreaterThan(
   };
 }
 
-export class CreateBookingDto {
-  @ApiProperty({
-    description: 'MongoDB ObjectId of the sports venue to reserve',
-    example: '64e8b0a1f2b4c10012345678',
-  })
-  @IsMongoId()
-  @IsNotEmpty()
-  venueId: string;
-
-  @ApiProperty({
-    description: 'Booking date in ISO string format (YYYY-MM-DD)',
-    example: '2026-08-20',
-  })
-  @IsDateString()
-  @IsNotEmpty()
-  date: string;
-
+export class BookingSlotDto {
   @ApiProperty({
     description: 'Start slot hour in 24h format (0 to 23)',
     example: 18,
@@ -82,7 +78,7 @@ export class CreateBookingDto {
 
   @ApiProperty({
     description: 'End slot hour in 24h format (1 to 24; must be > startTime)',
-    example: 20,
+    example: 19,
     minimum: 1,
     maximum: 24,
   })
@@ -95,6 +91,75 @@ export class CreateBookingDto {
     message: 'endTime must be greater than startTime',
   })
   endTime: number;
+}
+
+export class CreateBookingDto {
+  @ApiProperty({
+    description: 'MongoDB ObjectId of the sports venue to reserve',
+    example: '64e8b0a1f2b4c10012345678',
+  })
+  @IsMongoId()
+  @IsNotEmpty()
+  venueId: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional customer ID for admin creating a booking on behalf of a user',
+    example: '64e8b0a1f2b4c10012345678',
+  })
+  @IsOptional()
+  @IsMongoId()
+  customerId?: string;
+
+  @ApiProperty({
+    description: 'Booking date in ISO string format (YYYY-MM-DD)',
+    example: '2026-08-20',
+  })
+  @IsDateString()
+  @IsNotEmpty()
+  date: string;
+
+  @ApiPropertyOptional({
+    description: 'Array of time slots to book in a single reservation session',
+    type: [BookingSlotDto],
+    example: [
+      { startTime: 18, endTime: 19 },
+      { startTime: 20, endTime: 21 },
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BookingSlotDto)
+  slots?: BookingSlotDto[];
+
+  @ApiPropertyOptional({
+    description: 'Start slot hour in 24h format (0 to 23) (legacy single slot)',
+    example: 18,
+    minimum: 0,
+    maximum: 23,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  startTime?: number;
+
+  @ApiPropertyOptional({
+    description: 'End slot hour in 24h format (1 to 24; must be > startTime) (legacy single slot)',
+    example: 20,
+    minimum: 1,
+    maximum: 24,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  @IsGreaterThan('startTime', {
+    message: 'endTime must be greater than startTime',
+  })
+  endTime?: number;
 
   @ApiPropertyOptional({
     description: 'Optional promotional coupon code for discount',

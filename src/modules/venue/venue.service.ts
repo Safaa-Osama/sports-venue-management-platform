@@ -119,6 +119,9 @@ export class VenueService {
       endWorkingHours,
       defaultHourPrice,
       customHourPrices,
+      minimumDepositAmount,
+      existingImages,
+      keepImages,
       isActive,
     } = body;
 
@@ -135,7 +138,11 @@ export class VenueService {
       for (const amenity of amenities) {
         const trimmed = amenity?.trim() || '';
         const matchedAmenity = ALLOWED_AMENITIES.find(
-          (allowed) => allowed.toLowerCase() === trimmed.toLowerCase(),
+          (allowed) =>
+            allowed.toLowerCase() === trimmed.toLowerCase() ||
+            allowed.toLowerCase() + 's' === trimmed.toLowerCase() ||
+            (allowed.endsWith('s') &&
+              allowed.slice(0, -1).toLowerCase() === trimmed.toLowerCase()),
         );
 
         if (!matchedAmenity) {
@@ -148,6 +155,13 @@ export class VenueService {
       }
     }
 
+    const initialImages: string[] = [];
+    if (existingImages && Array.isArray(existingImages)) {
+      initialImages.push(...existingImages);
+    } else if (keepImages && Array.isArray(keepImages)) {
+      initialImages.push(...keepImages);
+    }
+
     let uploadedImages: string[] = [];
     if (images && images.length > 0) {
       const sanitizedFolder = venueName.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -157,19 +171,22 @@ export class VenueService {
       });
     }
 
+    const allImages = [...initialImages, ...uploadedImages];
+
     const venue = await this.venueRepo.create({
       venueName,
       sportsType,
       address,
       locationAlt,
       locationLang,
-      images: uploadedImages,
+      images: allImages,
       amenities: venueAmenities as VenueAmenities,
       startWorkingHours,
       endWorkingHours,
       WorkingHours: endWorkingHours - startWorkingHours,
       defaultHourPrice,
       customHourPrices,
+      minimumDepositAmount: minimumDepositAmount || 0,
       isActive: isActive !== undefined ? isActive : true,
       createdBy: user._id,
       isDeleted: false,
@@ -218,6 +235,7 @@ export class VenueService {
       endWorkingHours,
       defaultHourPrice,
       customHourPrices,
+      minimumDepositAmount,
       isActive,
       existingImages,
       keepImages,
@@ -249,6 +267,8 @@ export class VenueService {
       updateData.defaultHourPrice = defaultHourPrice;
     if (customHourPrices !== undefined)
       updateData.customHourPrices = customHourPrices;
+    if (minimumDepositAmount !== undefined)
+      updateData.minimumDepositAmount = minimumDepositAmount;
     if (isActive !== undefined) updateData.isActive = isActive;
 
     const newStart =
@@ -272,7 +292,11 @@ export class VenueService {
         for (const amenity of amenities) {
           const trimmed = amenity?.trim() || '';
           const matchedAmenity = ALLOWED_AMENITIES.find(
-            (allowed) => allowed.toLowerCase() === trimmed.toLowerCase(),
+            (allowed) =>
+              allowed.toLowerCase() === trimmed.toLowerCase() ||
+              allowed.toLowerCase() + 's' === trimmed.toLowerCase() ||
+              (allowed.endsWith('s') &&
+                allowed.slice(0, -1).toLowerCase() === trimmed.toLowerCase()),
           );
 
           if (!matchedAmenity) {

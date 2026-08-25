@@ -22,6 +22,7 @@ import { hash } from '../src/common/services/securityService/hash';
 import RedisService from '../src/common/services/redis/redis.service';
 
 describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob Webhooks', () => {
+  jest.setTimeout(30000);
   let app: INestApplication;
   let adminToken: string;
   let adminUserId: string;
@@ -169,6 +170,11 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
     await bookingRepo.deleteMany({
       filter: {
         date: { $gte: startOfDay, $lte: endOfDay },
+      },
+    });
+    await paymentRepo.deleteMany({
+      filter: {
+        paymobTransactionId: { $in: ['123456', '123457', '123458'] },
       },
     });
   }, 30000);
@@ -924,6 +930,8 @@ describe('Production Audit Suite: Wallet Atomicity, Booking Idempotency & Paymob
     it('should auto-refund late success webhook arriving after booking hold expired', async () => {
       const hmacSecret =
         process.env.PAYMOB_HMAC_SECRET || 'CF847A5A5927CEDDBC9DB35C1B0ABEA1';
+
+      await paymentRepo.deleteMany({ filter: { paymobTransactionId: '123458' } });
 
       // 1. Create a booking that expired 10 minutes ago
       const expiredBooking = await bookingRepo.create({

@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { AtLeastOne } from 'src/common/decorator/AtLeastOne.decorator';
@@ -145,6 +146,57 @@ export class CreateVenueDto {
   customHourPrices?: CustomHourPriceDto[];
 
   @ApiPropertyOptional({
+    description: 'Minimum deposit required per slot in EGP (0 for full payment)',
+    example: 50,
+    default: 0,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  minimumDepositAmount?: number;
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of existing image URLs / S3 keys',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  existingImages?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of existing image URLs / S3 keys to retain',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  keepImages?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of image URLs / S3 keys to delete',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  removedImages?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of image URLs / S3 keys to delete',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  deleteImages?: string[];
+
+  @ApiPropertyOptional({
     description: 'Whether the venue is currently active and open for booking',
     default: true,
     example: true,
@@ -176,6 +228,7 @@ export class GetVenuesQueryDto {
   'endWorkingHours',
   'defaultHourPrice',
   'customHourPrices',
+  'minimumDepositAmount',
   'isActive',
   'existingImages',
   'keepImages',

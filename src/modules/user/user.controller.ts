@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, UploadedFile, UseInterceptors, } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UploadedFile, UseInterceptors, } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiResponse, ApiTags, } from '@nestjs/swagger';
 import { auth } from 'src/common/decorator/auth.decorator';
@@ -12,6 +12,17 @@ import { UserService } from './user.service';
 @Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) { }
+
+  @Post('customers')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Create Customer User (Admin / Owner)',
+    description: 'Creates a new customer user with default wallet balance.',
+  })
+  @auth({ roles: [RoleEnum.admin, RoleEnum.superAdmin, RoleEnum.owner] })
+  async createCustomer(@Body() body: { userName: string; phone: string }) {
+    return this.userService.createCustomer(body);
+  }
 
   @Get('customers')
   @ApiOperation({

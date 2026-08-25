@@ -279,12 +279,13 @@ export class AuthService {
       throw new BadRequestException('Google Client ID is not configured on the server');
     }
 
-    const client = new OAuth2Client(clientId);
+    const client = new OAuth2Client();
     let ticket: any;
     try {
+      const audience = clientId.includes(',') ? clientId.split(',').map(id => id.trim()) : clientId;
       ticket = await client.verifyIdToken({
         idToken,
-        audience: clientId,
+        audience,
       });
     } catch (error) {
       throw new BadRequestException('Invalid or expired Google ID token');

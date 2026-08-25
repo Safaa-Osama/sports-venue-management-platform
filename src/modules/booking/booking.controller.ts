@@ -102,9 +102,10 @@ export class BookingController {
     @Headers('idempotency-key') idempotencyHeader?: string,
   ) {
     const effectiveIdempotencyKey = idempotencyHeader || body.idempotencyKey;
+    const effectiveUser = body.customerId ? ({ ...user, _id: body.customerId } as any) : user;
     return await this.bookingService.createBooking(
       body,
-      user,
+      effectiveUser,
       effectiveIdempotencyKey,
     );
   }
