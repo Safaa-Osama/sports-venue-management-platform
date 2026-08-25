@@ -126,12 +126,19 @@ export class PaymentService {
       });
 
       for (const b of targetBookings) {
+        const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
+        const bPaid = isDepositOnly
+          ? Number(((bookingFinal / (totalGroupFinalPrice || 1)) * paymentAmount).toFixed(2))
+          : bookingFinal;
+        const bRemaining = Math.max(0, Number((bookingFinal - bPaid).toFixed(2)));
         const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
           id: b._id,
           update: {
             paymentStatus: targetPaymentStatus,
             status: BookingStatusEnum.confirmed,
             paymentMethod: PaymentMethodEnum.wallet,
+            paidAmount: bPaid,
+            remainingAmount: bRemaining,
             expiresAt: null,
           },
         });
@@ -458,6 +465,9 @@ export class PaymentService {
         update: {
           status: BookingStatusEnum.cancelled,
           paymentStatus: PaymentStatusEnum.refunded,
+          paidAmount: 0,
+          remainingAmount: 0,
+          expiresAt: null,
         },
       });
       if (this.bookingGateway) {
@@ -768,13 +778,32 @@ export class PaymentService {
         };
       }
 
+      if (payment.walletDeduction && payment.walletDeduction > 0) {
+        try {
+          await this.walletService.payForBooking(
+            payment.userId,
+            payment.walletDeduction,
+            payment.bookingId ? payment.bookingId.toString() : payment.groupId || 'PAYMOB_WALLET_SPLIT',
+          );
+        } catch (wErr) {
+          console.error('Wallet deduction on Paymob success error:', wErr);
+        }
+      }
+
       const confirmedBookings: any[] = [];
       for (const b of targetBookings) {
+        const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
+        const bPaid = isDeposit
+          ? Number(((bookingFinal / (totalGroupDue || 1)) * payment.amount).toFixed(2))
+          : bookingFinal;
+        const bRemaining = Math.max(0, Number((bookingFinal - bPaid).toFixed(2)));
         const updated = await this.bookingRepo.findByIdAndUpdate({
           id: b._id,
           update: {
             paymentStatus: targetPaymentStatus,
             status: BookingStatusEnum.confirmed,
+            paidAmount: bPaid,
+            remainingAmount: bRemaining,
             expiresAt: null,
           },
         });

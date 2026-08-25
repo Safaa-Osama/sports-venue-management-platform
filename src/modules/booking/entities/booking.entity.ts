@@ -68,6 +68,12 @@ export class Booking {
   @Prop({ type: Number })
   finalPrice?: number;
 
+  @Prop({ type: Number, default: 0 })
+  paidAmount?: number;
+
+  @Prop({ type: Number, default: 0 })
+  remainingAmount?: number;
+
   @Prop({ type: String, enum: PaymentMethodEnum })
   paymentMethod?: PaymentMethodEnum;
 
@@ -88,7 +94,13 @@ BookingSchema.index(
   {
     unique: true,
     partialFilterExpression: {
-      status: { $in: [BookingStatusEnum.confirmed, BookingStatusEnum.pending] },
+      status: {
+        $in: [
+          BookingStatusEnum.confirmed,
+          BookingStatusEnum.pending,
+          BookingStatusEnum.completed,
+        ],
+      },
     },
   },
 );

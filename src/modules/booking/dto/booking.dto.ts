@@ -177,6 +177,24 @@ export class CreateBookingDto {
   @IsString()
   idempotencyKey?: string;
 
+  @ApiPropertyOptional({
+    description: 'Custom payment or deposit amount in EGP (must be >= minimum deposit and <= total price)',
+    example: 150,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(1)
+  customAmount?: number;
+
+  @ApiPropertyOptional({
+    description: 'Amount in EGP to deduct from user wallet balance for this booking',
+    example: 100,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  walletAmountToUse?: number;
+
   @ApiProperty({
     description: 'Payment method chosen for the reservation',
     enum: PaymentMethodEnum,
@@ -196,6 +214,24 @@ export class CreatePaymentDto {
   @IsEnum(PaymentMethodEnum)
   @IsNotEmpty()
   paymentMethod: PaymentMethodEnum;
+
+  @ApiPropertyOptional({
+    description: 'Optional custom payment or deposit amount in EGP',
+    example: 150,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(1)
+  customAmount?: number;
+
+  @ApiPropertyOptional({
+    description: 'Amount in EGP to deduct from user wallet balance for this payment',
+    example: 100,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  walletAmountToUse?: number;
 
   @ApiPropertyOptional({
     description: 'Optional promotional coupon code',

@@ -81,9 +81,15 @@ export class BookingService implements OnModuleInit {
 
   async getAvailability(venueId: string, startDate?: string, endDate?: string) {
     const filter: any = {
-      venueId,
+      venueId: Types.ObjectId.isValid(venueId)
+        ? new Types.ObjectId(venueId)
+        : venueId,
       status: {
-        $in: [BookingStatusEnum.confirmed, BookingStatusEnum.pending],
+        $in: [
+          BookingStatusEnum.confirmed,
+          BookingStatusEnum.pending,
+          BookingStatusEnum.completed,
+        ],
       },
     };
 
@@ -115,12 +121,16 @@ export class BookingService implements OnModuleInit {
       return true;
     });
 
-    return validOverlaps.map((b) => ({
-      date: b.date,
-      startTime: b.startTime,
-      endTime: b.endTime,
-      status: b.status,
-    }));
+    return validOverlaps.map((b) => {
+      const d = b.date instanceof Date ? b.date : new Date(b.date);
+      const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+      return {
+        date: dateStr,
+        startTime: b.startTime,
+        endTime: b.endTime,
+        status: b.status,
+      };
+    });
   }
 
   private computeRequestFingerprint(body: CreateBookingDto): string {
@@ -389,7 +399,11 @@ export class BookingService implements OnModuleInit {
             venueId: venue._id,
             date: { $gte: startOfDay, $lte: endOfDay },
             status: {
-              $in: [BookingStatusEnum.confirmed, BookingStatusEnum.pending],
+              $in: [
+                BookingStatusEnum.confirmed,
+                BookingStatusEnum.pending,
+                BookingStatusEnum.completed,
+              ],
             },
             $or: slotOverlapConditions,
           },
@@ -530,14 +544,34 @@ export class BookingService implements OnModuleInit {
 
         let amountToPay = groupFinalPrice;
         let isDepositOnly = false;
-        if (
+        const depositConfigured =
           venue.minimumDepositAmount !== undefined &&
           venue.minimumDepositAmount !== null &&
-          venue.minimumDepositAmount > 0
+          venue.minimumDepositAmount > 0;
+        const minRequiredDeposit = depositConfigured
+          ? Math.min(rawSlots.length * (venue.minimumDepositAmount ?? 0), groupFinalPrice)
+          : groupFinalPrice;
+
+        if (
+          body.customAmount !== undefined &&
+          body.customAmount !== null &&
+          Number(body.customAmount) > 0
         ) {
-          const depositRequired =
-            rawSlots.length * venue.minimumDepositAmount;
-          amountToPay = Math.min(depositRequired, groupFinalPrice);
+          const custom = Number(body.customAmount);
+          if (custom < minRequiredDeposit) {
+            throw new BadRequestException(
+              `Payment amount cannot be less than the minimum required deposit of ${minRequiredDeposit} EGP`,
+            );
+          }
+          if (custom > groupFinalPrice) {
+            throw new BadRequestException(
+              `Payment amount cannot exceed the total booking price of ${groupFinalPrice} EGP`,
+            );
+          }
+          amountToPay = custom;
+          isDepositOnly = amountToPay < groupFinalPrice;
+        } else if (depositConfigured) {
+          amountToPay = minRequiredDeposit;
           isDepositOnly = amountToPay < groupFinalPrice;
         }
 
@@ -585,6 +619,8 @@ export class BookingService implements OnModuleInit {
               totalPrice: sCalc.totalPrice,
               discountAmount: sCalc.discountAmount,
               finalPrice: sCalc.finalPrice,
+              paidAmount: 0,
+              remainingAmount: sCalc.finalPrice,
               couponCode: normalizedCouponCode,
               status: BookingStatusEnum.pending,
               paymentStatus: PaymentStatusEnum.unpaid,
@@ -631,6 +667,7 @@ export class BookingService implements OnModuleInit {
             groupFinalPrice,
             isDepositOnly,
             paymentMethod,
+            walletAmountToUse: body.walletAmountToUse,
             normalizedCouponCode,
           });
         } catch (payError: any) {
@@ -663,7 +700,7 @@ export class BookingService implements OnModuleInit {
         if (effectiveIdemKey) {
           try {
             await this.redisService.setValue({
-              key: effectiveIdemKey,
+              key: String(effectiveIdemKey),
               value: { requestHash, responseData },
               ttl: 86400,
             });
@@ -694,6 +731,7 @@ export class BookingService implements OnModuleInit {
     groupFinalPrice,
     isDepositOnly,
     paymentMethod,
+    walletAmountToUse,
     normalizedCouponCode,
   }: {
     user: UserDocument;
@@ -704,6 +742,7 @@ export class BookingService implements OnModuleInit {
     groupFinalPrice: number;
     isDepositOnly: boolean;
     paymentMethod: PaymentMethodEnum;
+    walletAmountToUse?: number;
     normalizedCouponCode?: string;
   }) {
     const targetPaymentStatus = isDepositOnly
@@ -748,13 +787,21 @@ export class BookingService implements OnModuleInit {
           );
           walletDebited = true;
 
-          for (const b of createdBookings) {
+          for (let i = 0; i < createdBookings.length; i++) {
+            const b = createdBookings[i];
+            const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
+            const bPaid = isDepositOnly
+              ? Number(((bookingFinal / (groupFinalPrice || 1)) * amountToPay).toFixed(2))
+              : bookingFinal;
+            const bRemaining = Math.max(0, Number((bookingFinal - bPaid).toFixed(2)));
             await this.bookingRepo.findByIdAndUpdate({
               id: b._id,
               update: {
                 status: BookingStatusEnum.confirmed,
                 paymentStatus: targetPaymentStatus,
                 paymentMethod: PaymentMethodEnum.wallet,
+                paidAmount: bPaid,
+                remainingAmount: bRemaining,
                 expiresAt: null,
               },
               options: { session },
@@ -858,12 +905,15 @@ export class BookingService implements OnModuleInit {
 
     if (paymentMethod === PaymentMethodEnum.cash) {
       for (const b of createdBookings) {
+        const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
         const updated = await this.bookingRepo.findByIdAndUpdate({
           id: b._id,
           update: {
             status: BookingStatusEnum.confirmed,
             paymentStatus: PaymentStatusEnum.pay_at_venue,
             paymentMethod: PaymentMethodEnum.cash,
+            paidAmount: 0,
+            remainingAmount: bookingFinal,
             expiresAt: null,
           },
         });
@@ -889,6 +939,32 @@ export class BookingService implements OnModuleInit {
     }
 
     if (paymentMethod === PaymentMethodEnum.paymob) {
+      const userWallet = await this.walletService.getOrCreateWallet(user._id);
+      const availableWallet = Math.max(0, userWallet?.balance || 0);
+
+      let requestedWalletDeduction = 0;
+      if (walletAmountToUse !== undefined && walletAmountToUse !== null) {
+        requestedWalletDeduction = Math.min(Number(walletAmountToUse), availableWallet, amountToPay);
+      } else {
+        requestedWalletDeduction = Math.min(availableWallet, amountToPay);
+      }
+
+      const paymobRemainder = Math.max(0, Number((amountToPay - requestedWalletDeduction).toFixed(2)));
+
+      if (paymobRemainder === 0 && requestedWalletDeduction >= amountToPay) {
+        return await this.processGroupPayment({
+          user,
+          venue,
+          groupId,
+          createdBookings,
+          amountToPay,
+          groupFinalPrice,
+          isDepositOnly,
+          paymentMethod: PaymentMethodEnum.wallet,
+          normalizedCouponCode,
+        });
+      }
+
       const transactionId = `TXN-${Date.now().toString(36).toUpperCase()}-${randomUUID()
         .replace(/-/g, '')
         .substring(0, 8)
@@ -899,6 +975,7 @@ export class BookingService implements OnModuleInit {
         groupId,
         userId: user._id,
         amount: amountToPay,
+        walletDeduction: requestedWalletDeduction,
         paymentMethod: PaymentMethodEnum.paymob,
         transactionId,
         status: PaymentStatusEnum.unpaid,
@@ -917,7 +994,7 @@ export class BookingService implements OnModuleInit {
         checkoutData = await this.paymobService.createPaymentIntention({
           bookingId: groupId || createdBookings[0]._id.toString(),
           transactionId,
-          amount: amountToPay,
+          amount: paymobRemainder,
           userEmail: anyUser.email || 'player@arenahub.com',
           userName: anyUser.userName || anyUser.name || 'Arena Player',
           userPhone,
@@ -931,26 +1008,28 @@ export class BookingService implements OnModuleInit {
       }
 
       for (const b of createdBookings) {
-        await this.bookingRepo.findByIdAndUpdate({
+        const updated = await this.bookingRepo.findByIdAndUpdate({
           id: b._id,
           update: {
             paymentMethod: PaymentMethodEnum.paymob,
           },
         });
+        if (updated) this.bookingGateway.emitSlotLocked(updated);
       }
 
       return {
-        message: 'Paymob checkout session initiated',
-        groupId,
-        bookingId: createdBookings[0]._id,
-        paymentId: payment._id,
-        transactionId,
-        amountToPay,
-        currency: 'EGP',
-        clientSecret: checkoutData.clientSecret,
-        publicKey: checkoutData.publicKey,
-        redirectUrl: checkoutData.redirectUrl,
+        ...checkoutData,
+        amountToPay: paymobRemainder,
+        walletDeduction: requestedWalletDeduction,
+        totalTarget: amountToPay,
+        paymentStatus: PaymentStatusEnum.unpaid,
         status: BookingStatusEnum.pending,
+        paymentMethod: PaymentMethodEnum.paymob,
+        transactionId,
+        bookingId: createdBookings[0]._id.toString(),
+        groupId,
+        paymentId: payment._id,
+        currency: 'EGP',
       };
     }
 
@@ -983,13 +1062,21 @@ export class BookingService implements OnModuleInit {
     );
 
     try {
-      for (const b of createdBookings) {
+      for (let i = 0; i < createdBookings.length; i++) {
+        const b = createdBookings[i];
+        const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
+        const bPaid = isDepositOnly
+          ? Number(((bookingFinal / (groupFinalPrice || 1)) * amountToPay).toFixed(2))
+          : bookingFinal;
+        const bRemaining = Math.max(0, Number((bookingFinal - bPaid).toFixed(2)));
         const updated = await this.bookingRepo.findByIdAndUpdate({
           id: b._id,
           update: {
             status: BookingStatusEnum.confirmed,
             paymentStatus: targetPaymentStatus,
             paymentMethod: PaymentMethodEnum.wallet,
+            paidAmount: bPaid,
+            remainingAmount: bRemaining,
             expiresAt: null,
           },
         });
@@ -1091,14 +1178,34 @@ export class BookingService implements OnModuleInit {
 
     let amountToPay = totalGroupFinalPrice;
     let isDepositOnly = false;
-    if (
+    const depositConfigured =
       venue?.minimumDepositAmount !== undefined &&
       venue?.minimumDepositAmount !== null &&
-      venue.minimumDepositAmount > 0
+      venue.minimumDepositAmount > 0;
+    const minRequiredDeposit = depositConfigured
+      ? Math.min(targetBookings.length * (venue?.minimumDepositAmount ?? 0), totalGroupFinalPrice)
+      : totalGroupFinalPrice;
+
+    if (
+      body.customAmount !== undefined &&
+      body.customAmount !== null &&
+      Number(body.customAmount) > 0
     ) {
-      const depositRequired =
-        targetBookings.length * venue.minimumDepositAmount;
-      amountToPay = Math.min(depositRequired, totalGroupFinalPrice);
+      const custom = Number(body.customAmount);
+      if (custom < minRequiredDeposit) {
+        throw new BadRequestException(
+          `Payment amount cannot be less than the minimum required deposit of ${minRequiredDeposit} EGP`,
+        );
+      }
+      if (custom > totalGroupFinalPrice) {
+        throw new BadRequestException(
+          `Payment amount cannot exceed the total booking price of ${totalGroupFinalPrice} EGP`,
+        );
+      }
+      amountToPay = custom;
+      isDepositOnly = amountToPay < totalGroupFinalPrice;
+    } else if (depositConfigured) {
+      amountToPay = minRequiredDeposit;
       isDepositOnly = amountToPay < totalGroupFinalPrice;
     }
 
@@ -1117,6 +1224,7 @@ export class BookingService implements OnModuleInit {
       groupFinalPrice: totalGroupFinalPrice,
       isDepositOnly,
       paymentMethod,
+      walletAmountToUse: body.walletAmountToUse,
       normalizedCouponCode: activeCouponCode,
     });
   }
@@ -1263,50 +1371,47 @@ export class BookingService implements OnModuleInit {
       );
     }
 
-    if (
-      (booking.paymentStatus === PaymentStatusEnum.paid ||
-        booking.paymentStatus === PaymentStatusEnum.partially_paid) &&
-      booking.paymentMethod === PaymentMethodEnum.wallet
-    ) {
-      const refundAmount = booking.finalPrice ?? booking.totalPrice;
-      const session = await this.connection.startSession();
-      session.startTransaction();
+    const wasPaid =
+      booking.paymentStatus === PaymentStatusEnum.paid ||
+      booking.paymentStatus === PaymentStatusEnum.partially_paid;
 
+    const actualPaidAmount =
+      booking.paidAmount !== undefined && booking.paidAmount !== null && booking.paidAmount > 0
+        ? booking.paidAmount
+        : wasPaid
+        ? (booking.finalPrice ?? booking.totalPrice ?? 0)
+        : 0;
+
+    let targetPaymentStatus = booking.paymentStatus;
+
+    if (wasPaid && actualPaidAmount > 0) {
+      targetPaymentStatus = PaymentStatusEnum.refunded;
       try {
         await this.walletService.refundBooking(
           booking.userId,
-          refundAmount,
+          actualPaidAmount,
           booking._id.toString(),
-          undefined,
-          session,
+          user,
         );
-
-        const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
-          id: booking._id,
-          update: {
-            status: BookingStatusEnum.cancelled,
-            paymentStatus: PaymentStatusEnum.refunded,
-            expiresAt: null,
-          },
-          options: { session },
-        });
-
-        await session.commitTransaction();
-        this.bookingGateway.emitSlotReleased(updatedBooking!);
-        return updatedBooking;
       } catch (refundError) {
-        await session.abortTransaction();
-        throw refundError;
-      } finally {
-        await session.endSession();
+        console.error('Wallet refund failed on booking cancellation:', refundError);
       }
     }
 
     const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
       id: booking._id,
-      update: { status: BookingStatusEnum.cancelled, expiresAt: null },
+      update: {
+        status: BookingStatusEnum.cancelled,
+        paymentStatus: targetPaymentStatus,
+        paidAmount: 0,
+        remainingAmount: 0,
+        expiresAt: null,
+      },
     });
-    this.bookingGateway.emitSlotReleased(updatedBooking);
+
+    if (updatedBooking) {
+      this.bookingGateway.emitSlotReleased(updatedBooking);
+    }
 
     return updatedBooking;
   }
@@ -1317,10 +1422,72 @@ export class BookingService implements OnModuleInit {
       throw new NotFoundException('Booking not found');
     }
 
+    const wasPaid =
+      booking.paymentStatus === PaymentStatusEnum.paid ||
+      booking.paymentStatus === PaymentStatusEnum.partially_paid;
+
+    const actualPaidAmount =
+      booking.paidAmount !== undefined && booking.paidAmount !== null && booking.paidAmount > 0
+        ? booking.paidAmount
+        : wasPaid
+        ? (booking.finalPrice ?? booking.totalPrice ?? 0)
+        : 0;
+
     const updateData: any = {};
     if (updateDto.status) updateData.status = updateDto.status;
-    if (updateDto.paymentStatus)
+    if (updateDto.paymentStatus) {
       updateData.paymentStatus = updateDto.paymentStatus;
+    }
+
+    const bFinal = booking.finalPrice ?? booking.totalPrice ?? 0;
+
+    if (updateDto.paymentStatus === PaymentStatusEnum.paid) {
+      updateData.paidAmount = bFinal;
+      updateData.remainingAmount = 0;
+    } else if (
+      updateDto.paymentStatus === PaymentStatusEnum.unpaid ||
+      updateDto.paymentStatus === PaymentStatusEnum.pay_at_venue
+    ) {
+      updateData.paidAmount = 0;
+      updateData.remainingAmount = bFinal;
+    } else if (updateDto.paymentStatus === PaymentStatusEnum.refunded) {
+      updateData.paidAmount = 0;
+      updateData.remainingAmount = 0;
+      // If was paid and not already refunded, add to customer wallet
+      if (wasPaid && actualPaidAmount > 0 && booking.paymentStatus !== PaymentStatusEnum.refunded) {
+        try {
+          await this.walletService.refundBooking(
+            booking.userId,
+            actualPaidAmount,
+            booking._id.toString(),
+          );
+        } catch (refundError) {
+          console.error('Wallet refund failed on updateStatus to refunded:', refundError);
+        }
+      }
+    }
+
+    // Handle Status Transition to Cancelled
+    if (
+      updateDto.status === BookingStatusEnum.cancelled &&
+      wasPaid &&
+      actualPaidAmount > 0 &&
+      booking.paymentStatus !== PaymentStatusEnum.refunded &&
+      updateDto.paymentStatus !== PaymentStatusEnum.refunded
+    ) {
+      updateData.paymentStatus = PaymentStatusEnum.refunded;
+      updateData.paidAmount = 0;
+      updateData.remainingAmount = 0;
+      try {
+        await this.walletService.refundBooking(
+          booking.userId,
+          actualPaidAmount,
+          booking._id.toString(),
+        );
+      } catch (refundError) {
+        console.error('Wallet refund failed on updateStatus to cancelled:', refundError);
+      }
+    }
 
     if (Object.keys(updateData).length === 0) {
       throw new BadRequestException('No status fields provided to update');

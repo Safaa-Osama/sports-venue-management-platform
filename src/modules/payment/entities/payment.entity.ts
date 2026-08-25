@@ -48,6 +48,9 @@ export class Payment {
   @Prop({ type: Number, default: 0 })
   refundedAmount?: number;
 
+  @Prop({ type: Number, default: 0 })
+  walletDeduction?: number;
+
   @Prop({ type: String, required: false })
   refundReason?: string;
 }

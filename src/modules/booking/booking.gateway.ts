@@ -51,10 +51,11 @@ export class BookingGateway
   }
 
   emitSlotLocked(booking: any) {
-    const venueRoom = `venue_${booking.venueId}`;
+    const venueIdStr = booking.venueId?.toString();
+    const venueRoom = `venue_${venueIdStr}`;
     this.server.to(venueRoom).emit('slot_locked', {
-      bookingId: booking._id,
-      venueId: booking.venueId,
+      bookingId: booking._id?.toString(),
+      venueId: venueIdStr,
       date: booking.date,
       startTime: booking.startTime,
       endTime: booking.endTime,
@@ -63,10 +64,11 @@ export class BookingGateway
   }
 
   emitSlotReleased(booking: any) {
-    const venueRoom = `venue_${booking.venueId}`;
+    const venueIdStr = booking.venueId?.toString();
+    const venueRoom = `venue_${venueIdStr}`;
     this.server.to(venueRoom).emit('slot_released', {
-      bookingId: booking._id,
-      venueId: booking.venueId,
+      bookingId: booking._id?.toString(),
+      venueId: venueIdStr,
       date: booking.date,
       startTime: booking.startTime,
       endTime: booking.endTime,
@@ -74,10 +76,11 @@ export class BookingGateway
   }
 
   emitBookingConfirmed(booking: any) {
-    const venueRoom = `venue_${booking.venueId}`;
+    const venueIdStr = booking.venueId?.toString();
+    const venueRoom = `venue_${venueIdStr}`;
     this.server.to(venueRoom).emit('booking_confirmed', {
-      bookingId: booking._id,
-      venueId: booking.venueId,
+      bookingId: booking._id?.toString(),
+      venueId: venueIdStr,
       date: booking.date,
       startTime: booking.startTime,
       endTime: booking.endTime,
