@@ -262,6 +262,57 @@ export class PaymentService {
     };
   }
 
+  async getAllPayments(query: QueryPaymentDto & { startDate?: string; endDate?: string; search?: string }) {
+    const { page = 1, limit = 50, status, paymentMethod, startDate, endDate, search } = query;
+    const filter: any = {};
+
+    if (status) filter.status = status;
+    if (paymentMethod) filter.paymentMethod = paymentMethod;
+
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      filter.$or = [
+        { transactionId: { $regex: q, $options: 'i' } },
+        { referenceId: { $regex: q, $options: 'i' } },
+        { 'paymobOrder.id': isNaN(Number(q)) ? undefined : Number(q) },
+      ].filter(Boolean);
+    }
+
+    const result = await this.paymentRepo.paginate({
+      page,
+      limit,
+      search: filter,
+      sort: { createdAt: -1 },
+      populate: [
+        { path: 'userId', select: 'userName email phone name' },
+        {
+          path: 'bookingId',
+          select: 'bookingCode date startTime endTime totalPrice finalPrice venueId venueName customerName customerPhone',
+          populate: { path: 'venueId', select: 'venueName name address' },
+        },
+      ],
+    });
+
+    return {
+      message: 'Payments retrieved successfully',
+      ...result,
+    };
+  }
+
   async getVenuePayments(
     venueId: string,
     query: QueryPaymentDto,

@@ -1260,6 +1260,42 @@ export class BookingService implements OnModuleInit {
     });
   }
 
+  async getCustomerBookings(customerId: string, query: QueryBookingDto) {
+    const { page, limit, status, paymentStatus, date } = query;
+    const search: any = {
+      $or: [
+        { userId: new Types.ObjectId(customerId) },
+        { customerId: customerId },
+      ],
+    };
+
+    if (status) {
+      search.status = status;
+    }
+    if (paymentStatus) {
+      search.paymentStatus = paymentStatus;
+    }
+    if (date) {
+      const d = new Date(date);
+      const startOfDay = new Date(d);
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const endOfDay = new Date(d);
+      endOfDay.setUTCHours(23, 59, 59, 999);
+      search.date = { $gte: startOfDay, $lte: endOfDay };
+    }
+
+    return this.bookingRepo.paginate({
+      page: page || 1,
+      limit: limit || 50,
+      search,
+      sort: { createdAt: -1 },
+      populate: {
+        path: 'venueId',
+        select: 'venueName name address images defaultHourPrice',
+      },
+    });
+  }
+
   async getVenueBookings(venueId: string, query: QueryBookingDto) {
     const venue = await this.venueRepo.findById(venueId);
     if (!venue) {

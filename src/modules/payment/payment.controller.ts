@@ -81,6 +81,32 @@ export class PaymentController {
     return this.paymentService.createPayment(body, user);
   }
 
+  @Get()
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get All Payments / Paymob Transactions (Admin / Owner / Manager)',
+    description: 'Retrieves all financial transactions across venues with date range and status filters.',
+  })
+  @ApiQuery({ name: 'startDate', required: false, description: 'Filter start date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'endDate', required: false, description: 'Filter end date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'paymentMethod', required: false, description: 'e.g. paymob, wallet, cash' })
+  @ApiQuery({ name: 'status', required: false, description: 'paid, pending, partially_paid, refunded, failed' })
+  @ApiQuery({ name: 'search', required: false, description: 'Search transaction ID or reference' })
+  @ApiResponse({ status: 200, description: 'Payments list retrieved successfully' })
+  @auth({
+    roles: [
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ],
+  })
+  getAllPayments(
+    @Query() query: QueryPaymentDto & { startDate?: string; endDate?: string; search?: string },
+  ) {
+    return this.paymentService.getAllPayments(query);
+  }
+
   @Get('my-payments')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({

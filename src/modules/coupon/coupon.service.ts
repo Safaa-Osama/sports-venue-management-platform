@@ -21,6 +21,38 @@ export class CouponService {
     private readonly userRepo: UserRepo,
   ) { }
 
+  async getAllCoupons(query?: { search?: string; status?: string }) {
+    const filter: Record<string, any> = {};
+
+    if (query?.search) {
+      filter.code = { $regex: query.search.trim(), $options: 'i' };
+    }
+
+    if (query?.status === 'active') {
+      filter.isActive = true;
+      filter.endDate = { $gte: new Date() };
+    } else if (query?.status === 'expired') {
+      filter.endDate = { $lt: new Date() };
+    } else if (query?.status === 'inactive') {
+      filter.isActive = false;
+    }
+
+    const coupons = await this.couponRepo.find({
+      filter,
+      options: { sort: { createdAt: -1 } },
+    });
+
+    return coupons;
+  }
+
+  async getCouponById(id: string) {
+    const coupon = await this.couponRepo.findById(id);
+    if (!coupon) {
+      throw new NotFoundException('Coupon not found');
+    }
+    return coupon;
+  }
+
   async createCoupon(body: CreateCouponDto, user: AdminUserDocument) {
     const {
       code,

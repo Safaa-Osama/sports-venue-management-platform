@@ -47,33 +47,39 @@ export class UserController {
   @ApiResponse({
     status: 200,
     description: 'Customer profile retrieved successfully',
-    schema: {
-      example: {
-        success: true,
-        statusCode: 200,
-        message: 'done',
-        data: {
-          _id: '64e8b0a1f2b4c10012345678',
-          userName: 'John Doe',
-          phone: '+201012345678',
-          email: 'johndoe@example.com',
-          avatar: 'https://s3.amazonaws.com/.../avatar.jpg',
-          position: 'Midfielder',
-          walletBalance: 250,
-          status: 'active',
-          provider: 'system',
-          emailConfirmed: true,
-          createdAt: '2026-08-17T12:00:00.000Z',
-          updatedAt: '2026-08-17T12:00:00.000Z',
-        },
-      },
-    },
   })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid or missing token' })
   @ApiResponse({ status: 404, description: 'Customer not found' })
   @auth({ roles: [RoleEnum.customer, RoleEnum.user] })
   getCustomerProfile(@User() user: any) {
     return this.userService.getCustomerProfile(user);
+  }
+
+  @Patch('customer/profile')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Update Authenticated Customer Profile',
+    description:
+      'Updates full name, phone number, playing position, and avatar for the currently authenticated customer.',
+  })
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiResponse({ status: 200, description: 'Customer profile updated successfully' })
+  @auth({ roles: [RoleEnum.customer, RoleEnum.user] })
+  @UseInterceptors(FileInterceptor('avatar'))
+  async updateMyProfile(
+    @User() user: any,
+    @Body() body: UpdateCustomerUserDto,
+    @UploadedFile() avatar?: Express.Multer.File,
+  ) {
+    const updatedCustomer = await this.userService.updateCustomerUser(
+      user._id.toString(),
+      body,
+      avatar,
+    );
+    return {
+      message: 'Profile updated successfully',
+      data: updatedCustomer,
+    };
   }
 
   @Get('customers/:id')
