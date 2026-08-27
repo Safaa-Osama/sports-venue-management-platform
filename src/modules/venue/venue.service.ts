@@ -14,6 +14,7 @@ import {
 import { S3Service } from 'src/common/services/s3Service/s3.service';
 import { VenueAmenities } from './entities/venue.entity';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
+import { PushNotificationService } from '../push-notification/push-notification.service';
 
 const ALLOWED_AMENITIES = [
   'Parking',
@@ -35,6 +36,7 @@ export class VenueService {
   constructor(
     private readonly venueRepo: VenueRepo,
     private readonly s3service: S3Service,
+    private readonly pushService: PushNotificationService,
   ) { }
 
   async getAllVenues(query?: GetVenuesQueryDto) {
@@ -367,6 +369,15 @@ export class VenueService {
       id,
       update: updateData,
     });
+
+    if (venue.isActive === false && updateData.isActive === true) {
+      this.pushService.broadcastToAllCustomers('PITCH_REOPENED', {
+        venueName: venue.venueName,
+      }, {
+        route: `/pitch/${id}`,
+        venueId: id,
+      }).catch(() => {});
+    }
 
     const updatedVenueObj = updatedVenue?.toObject? updatedVenue.toObject(): updatedVenue;
     return updatedVenueObj

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UploadedFile, UseInterceptors, } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseInterceptors, } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiResponse, ApiTags, } from '@nestjs/swagger';
 import { auth } from 'src/common/decorator/auth.decorator';
@@ -6,6 +6,7 @@ import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { UpdateAdminUserDto, UpdateCustomerUserDto, } from './dto/update-user.dto';
 import { UserService } from './user.service';
+import { RegisterPushTokenDto, RemovePushTokenDto } from '../push-notification/dto/push-token.dto';
 
 
 @ApiTags('Users')
@@ -237,5 +238,53 @@ export class UserController {
       message: 'Admin user updated successfully',
       data: updatedAdmin,
     };
+  }
+
+  @Post('push-token')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Register or Update Expo Push Token',
+    description: 'Registers or updates the Expo push token and device platform for the authenticated user.',
+  })
+  @ApiResponse({ status: 200, description: 'Push token registered successfully' })
+  @auth({
+    roles: [
+      RoleEnum.customer,
+      RoleEnum.user,
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ],
+  })
+  registerPushToken(
+    @User() user: any,
+    @Body() body: RegisterPushTokenDto,
+  ) {
+    return this.userService.registerPushToken(user, body);
+  }
+
+  @Delete('push-token')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Unregister Expo Push Token',
+    description: 'Removes the specified push token for the authenticated user (e.g. on logout).',
+  })
+  @ApiResponse({ status: 200, description: 'Push token removed successfully' })
+  @auth({
+    roles: [
+      RoleEnum.customer,
+      RoleEnum.user,
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ],
+  })
+  removePushToken(
+    @User() user: any,
+    @Body() body: RemovePushTokenDto,
+  ) {
+    return this.userService.removePushToken(user, body);
   }
 }

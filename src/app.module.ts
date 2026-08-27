@@ -18,6 +18,7 @@ import { RedisModule } from './common/services/redis/redisModule';
 import { AmenitiesModule } from './modules/amenities/amenities.module';
 import { AdvertisementModule } from './modules/advertisement/advertisement.module';
 import { ContactModule } from './modules/contact/contact.module';
+import { PushNotificationModule } from './modules/push-notification/push-notification.module';
 
 @Module({
   imports: [

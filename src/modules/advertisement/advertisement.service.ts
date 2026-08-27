@@ -11,6 +11,8 @@ import {
 import { AdvertisementDocument } from './entities/advertisement.entity';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
 
+import { PushNotificationService } from '../push-notification/push-notification.service';
+
 @Injectable()
 export class AdvertisementService {
   private readonly CACHE_PREFIX = 'ad:dashboard:';
@@ -20,6 +22,7 @@ export class AdvertisementService {
     private readonly advertisementRepo: AdvertisementRepo,
     private readonly s3Service: S3Service,
     private readonly redisService: RedisService,
+    private readonly pushService: PushNotificationService,
     @Optional() private readonly bookingGateway?: BookingGateway,
   ) { }
 
@@ -137,6 +140,16 @@ export class AdvertisementService {
 
       const createdAd = await this.advertisementRepo.create(adData);
       await this.invalidateDashboardCache();
+
+      if (computedStatus === AdvertisementStatusEnum.active) {
+        this.pushService.broadcastToAllCustomers('NEW_PROMO', {
+          promoTitle: (createdAd as any).title || 'New Promo',
+          promoDescription: (createdAd as any).description || 'Check out the latest offer on ArenaHub!',
+        }, {
+          route: '/',
+          adId: createdAd._id?.toString(),
+        }).catch(() => {});
+      }
 
       return await this.formatAdvertisementWithImageUrl(createdAd);
     } catch (error) {

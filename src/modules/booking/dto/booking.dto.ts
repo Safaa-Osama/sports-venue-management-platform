@@ -311,4 +311,11 @@ export class UpdateBookingStatusDto {
   @IsOptional()
   @IsEnum(PaymentStatusEnum)
   paymentStatus?: PaymentStatusEnum;
+
+  @ApiPropertyOptional({
+    description: 'Updated paid amount',
+    example: 150,
+  })
+  @IsOptional()
+  paidAmount?: number;
 }

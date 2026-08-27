@@ -85,6 +85,12 @@ export class Booking {
 
   @Prop({ type: String })
   requestHash?: string;
+
+  @Prop({ type: Boolean, default: false })
+  morningReminderSent?: boolean;
+
+  @Prop({ type: Boolean, default: false })
+  twoHourReminderSent?: boolean;
 }
 
 export const BookingSchema = SchemaFactory.createForClass(Booking);

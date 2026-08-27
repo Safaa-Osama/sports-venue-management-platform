@@ -21,6 +21,7 @@ import { VenueRepo } from 'src/common/repositories/venue-repo';
 import { UserDocument } from '../user/entities/user.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { BookingGateway } from '../booking/booking.gateway';
+import { PushNotificationService } from '../push-notification/push-notification.service';
 import {
   CreatePaymentDto,
   MarkCashPaidDto,
@@ -36,6 +37,7 @@ export class PaymentService {
     private readonly venueRepo: VenueRepo,
     private readonly walletService: WalletService,
     private readonly paymobService: PaymobService,
+    private readonly pushService: PushNotificationService,
     @Optional() private readonly bookingGateway?: BookingGateway,
   ) { }
 
@@ -444,6 +446,19 @@ export class PaymentService {
       });
       if (this.bookingGateway && updated) {
         this.bookingGateway.emitBookingConfirmed(updated);
+      }
+      if (updated && payment.userId) {
+        this.pushService.sendToCustomer(
+          payment.userId.toString(),
+          'PAYMENT_APPROVED',
+          {
+            bookingCode: updated.bookingCode || '',
+          },
+          {
+            route: '/',
+            bookingId: updated._id?.toString(),
+          },
+        ).catch(() => {});
       }
     }
 

@@ -10,6 +10,8 @@ import { CustomerUserDocument } from './entities/customer-user.entity';
 
 
 import { CustomerStatusEnum, ProviderEnum } from 'src/common/enums/userEnum';
+import { PushNotificationService } from '../push-notification/push-notification.service';
+import { RegisterPushTokenDto, RemovePushTokenDto } from '../push-notification/dto/push-token.dto';
 
 @Injectable()
 export class UserService {
@@ -17,6 +19,7 @@ export class UserService {
     private readonly customerUserRepo: CustomerUserRepo,
     private readonly adminUserRepo: AdminUserRepo,
     private readonly s3Service: S3Service,
+    private readonly pushService: PushNotificationService,
   ) { }
 
   async createCustomer(dto: { userName: string; phone: string }) {
@@ -99,7 +102,7 @@ export class UserService {
       throw new NotFoundException('Customer user not found');
     }
 
-    const { phone, position, userName } = body;
+    const { phone, position, userName, avatar: avatarUrl } = body;
 
     if (phone && phone !== customer.phone) {
       const existing = await this.customerUserRepo.findOne({
@@ -121,13 +124,19 @@ export class UserService {
       });
     }
 
-
     const updateData: any = {};
 
     if (userName !== undefined) updateData.userName = userName;
     if (phone !== undefined) updateData.phone = phone;
     if (position !== undefined) updateData.position = position;
-    if (avatar && newlyUploadedImage !== undefined) updateData.avatar = newlyUploadedImage;
+    if (body.locale !== undefined) updateData.locale = body.locale;
+    if (body.status !== undefined) updateData.status = body.status;
+
+    if (avatar && newlyUploadedImage !== undefined) {
+      updateData.avatar = newlyUploadedImage;
+    } else if (avatarUrl !== undefined) {
+      updateData.avatar = avatarUrl;
+    }
 
     const updatedCustomer = await this.customerUserRepo.findByIdAndUpdate({
       id: objectId,
@@ -142,7 +151,43 @@ export class UserService {
       await this.s3Service.deleteFile(customer.avatar);
     }
 
+    // Trigger push notification if status changed to suspended or hold
+    if (body.status && body.status !== customer.status) {
+      if (body.status === CustomerStatusEnum.suspended) {
+        this.pushService.sendToCustomer(objectId, 'USER_SUSPENDED', {
+          userName: updatedCustomer.userName || 'User',
+        }).catch(() => {});
+      } else if (body.status === CustomerStatusEnum.hold) {
+        this.pushService.sendToCustomer(objectId, 'USER_ON_HOLD', {
+          userName: updatedCustomer.userName || 'User',
+        }).catch(() => {});
+      }
+    }
+
     return updatedCustomer;
+  }
+
+  async registerPushToken(user: any, dto: RegisterPushTokenDto) {
+    const userId = user._id || user.id;
+    if (!userId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+    const success = await this.pushService.registerPushToken(
+      userId,
+      dto.token,
+      dto.platform || 'unknown',
+      dto.locale,
+    );
+    return { success, message: 'Push token registered successfully' };
+  }
+
+  async removePushToken(user: any, dto: RemovePushTokenDto) {
+    const userId = user._id || user.id;
+    if (!userId) {
+      throw new BadRequestException('User ID not found in token');
+    }
+    const success = await this.pushService.removePushToken(userId, dto.token);
+    return { success, message: 'Push token removed successfully' };
   }
 
 

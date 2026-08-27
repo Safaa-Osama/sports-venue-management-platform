@@ -33,6 +33,7 @@ import {
   UpdateBookingStatusDto,
 } from './dto/booking.dto';
 import * as crypto from 'crypto';
+import { PushNotificationService } from '../push-notification/push-notification.service';
 import { randomUUID } from 'crypto';
 
 function isDuplicateKeyError(error: any): boolean {
@@ -63,6 +64,7 @@ export class BookingService implements OnModuleInit {
     private readonly paymobService: PaymobService,
     private readonly bookingGateway: BookingGateway,
     private readonly redisService: RedisService,
+    private readonly pushService: PushNotificationService,
     @InjectConnection() private readonly connection: Connection,
   ) { }
 
@@ -181,6 +183,179 @@ export class BookingService implements OnModuleInit {
       });
 
       this.bookingGateway.emitSlotReleased(booking);
+    }
+  }
+
+  @Cron('*/10 * * * *')
+  async handleMatchReminders() {
+    try {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+      const todayBookings = await this.bookingRepo.find({
+        filter: {
+          status: BookingStatusEnum.confirmed,
+          date: { $gte: todayStart, $lte: todayEnd },
+        },
+      });
+
+      const currentHour = now.getHours();
+      const currentMinutes = now.getMinutes();
+      const currentTimeDecimal = currentHour + currentMinutes / 60;
+
+      for (const b of todayBookings) {
+        const venue = await this.venueRepo.findById(b.venueId);
+        const venueName = venue?.venueName || 'ArenaHub Pitch';
+        const formattedDate = new Date(b.date).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+        });
+        const formattedTime = `${b.startTime}:00`;
+
+        // 1. Morning reminder (09:00 AM)
+        if (currentHour >= 9 && !b.morningReminderSent) {
+          await this.bookingRepo.findByIdAndUpdate({
+            id: b._id,
+            update: { morningReminderSent: true },
+          });
+
+          this.pushService.sendToCustomer(
+            b.userId.toString(),
+            'MATCH_REMINDER_MORNING',
+            {
+              venueName,
+              time: formattedTime,
+              date: formattedDate,
+              bookingCode: b.bookingCode,
+            },
+            {
+              route: '/',
+              bookingId: b._id.toString(),
+              venueId: b.venueId.toString(),
+            },
+          ).catch(() => {});
+        }
+
+        // 2. 2-Hour Kickoff reminder
+        const hoursUntilKickoff = b.startTime - currentTimeDecimal;
+        if (hoursUntilKickoff > 0 && hoursUntilKickoff <= 2.25 && !b.twoHourReminderSent) {
+          await this.bookingRepo.findByIdAndUpdate({
+            id: b._id,
+            update: { twoHourReminderSent: true },
+          });
+
+          this.pushService.sendToCustomer(
+            b.userId.toString(),
+            'MATCH_REMINDER_KICKOFF',
+            {
+              venueName,
+              time: formattedTime,
+              date: formattedDate,
+              bookingCode: b.bookingCode,
+            },
+            {
+              route: '/',
+              bookingId: b._id.toString(),
+              venueId: b.venueId.toString(),
+            },
+          ).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error('[BookingService] Failed to process match reminders:', err);
+    }
+  }
+
+  private async notifyBookingConfirmed(booking: any) {
+    try {
+      if (!booking || !booking.userId) return;
+      const venue = await this.venueRepo.findById(booking.venueId);
+      const venueName = venue?.venueName || 'ArenaHub Pitch';
+      const formattedDate = new Date(booking.date).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+      });
+      const formattedTime = `${booking.startTime}:00`;
+
+      this.pushService.sendToCustomer(
+        booking.userId.toString(),
+        'BOOKING_CONFIRMED',
+        {
+          venueName,
+          date: formattedDate,
+          time: formattedTime,
+          bookingCode: booking.bookingCode || '',
+        },
+        {
+          route: '/',
+          bookingId: booking._id?.toString(),
+          venueId: booking.venueId?.toString(),
+        },
+      ).catch(() => {});
+    } catch (err) {
+      console.warn('[BookingService] Failed to send BOOKING_CONFIRMED push notification:', err);
+    }
+  }
+
+  private async notifyBookingCancelled(booking: any) {
+    try {
+      if (!booking) return;
+      const venue = await this.venueRepo.findById(booking.venueId);
+      const venueName = venue?.venueName || 'ArenaHub Pitch';
+      const formattedDate = new Date(booking.date).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+      });
+
+      // Customer notification
+      if (booking.userId) {
+        this.pushService.sendToCustomer(
+          booking.userId.toString(),
+          'BOOKING_CANCELLED',
+          {
+            venueName,
+            bookingCode: booking.bookingCode || '',
+          },
+          {
+            route: '/',
+            bookingId: booking._id?.toString(),
+          },
+        ).catch(() => {});
+
+        if (booking.morningReminderSent) {
+          this.pushService.sendToCustomer(
+            booking.userId.toString(),
+            'MATCH_REMINDER_CANCELLED',
+            {
+              venueName,
+              date: formattedDate,
+            },
+            {
+              route: '/',
+              bookingId: booking._id?.toString(),
+            },
+          ).catch(() => {});
+        }
+      }
+
+      // Host / Owner notification
+      if (venue?.createdBy) {
+        this.pushService.sendToAdmin(
+          venue.createdBy.toString(),
+          'BOOKING_CANCELLED',
+          {
+            venueName,
+            bookingCode: booking.bookingCode || '',
+          },
+          {
+            route: '/',
+            bookingId: booking._id?.toString(),
+          },
+        ).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('[BookingService] Failed to send BOOKING_CANCELLED push notification:', err);
     }
   }
 
@@ -654,6 +829,22 @@ export class BookingService implements OnModuleInit {
             createdBookings[0],
             'NEW_PENDING_BOOKING',
           );
+          this.pushService.sendToAdmin(
+            venue.createdBy.toString(),
+            'NEW_BOOKING_REQUEST',
+            {
+              venueName: venue.venueName || 'Pitch',
+              date: startOfDay.toISOString().split('T')[0],
+              time: `${createdBookings[0].startTime}:00`,
+              customerName: (user as any).userName || 'Customer',
+              bookingCode: createdBookings[0].bookingCode || '',
+            },
+            {
+              route: '/',
+              bookingId: createdBookings[0]._id?.toString(),
+              venueId: venue._id?.toString(),
+            },
+          ).catch(() => {});
         }
 
         let paymentResult: any;
@@ -822,7 +1013,10 @@ export class BookingService implements OnModuleInit {
 
           for (const b of createdBookings) {
             const updated = await this.bookingRepo.findById(b._id);
-            if (updated) this.bookingGateway.emitBookingConfirmed(updated);
+            if (updated) {
+              this.bookingGateway.emitBookingConfirmed(updated);
+              this.notifyBookingConfirmed(updated).catch(() => {});
+            }
           }
 
           return {
@@ -917,7 +1111,10 @@ export class BookingService implements OnModuleInit {
             expiresAt: null,
           },
         });
-        if (updated) this.bookingGateway.emitBookingConfirmed(updated);
+        if (updated) {
+          this.bookingGateway.emitBookingConfirmed(updated);
+          this.notifyBookingConfirmed(updated).catch(() => {});
+        }
       }
 
       if (normalizedCouponCode) {
@@ -1447,6 +1644,7 @@ export class BookingService implements OnModuleInit {
 
     if (updatedBooking) {
       this.bookingGateway.emitSlotReleased(updatedBooking);
+      this.notifyBookingCancelled(updatedBooking).catch(() => {});
     }
 
     return updatedBooking;
@@ -1480,8 +1678,34 @@ export class BookingService implements OnModuleInit {
     if (updateDto.paymentStatus === PaymentStatusEnum.paid) {
       updateData.paidAmount = bFinal;
       updateData.remainingAmount = 0;
+      updateData.expiresAt = null;
+    } else if (updateDto.paymentStatus === PaymentStatusEnum.partially_paid) {
+      const pAmount =
+        typeof updateDto.paidAmount === 'number'
+          ? updateDto.paidAmount
+          : booking.paidAmount || 0;
+      updateData.paidAmount = pAmount;
+      updateData.remainingAmount = Math.max(0, bFinal - pAmount);
     } else if (
-      updateDto.paymentStatus === PaymentStatusEnum.unpaid ||
+      updateDto.status === BookingStatusEnum.cancelled &&
+      wasPaid &&
+      actualPaidAmount > 0 &&
+      booking.paymentStatus !== PaymentStatusEnum.refunded &&
+      updateDto.paymentStatus !== PaymentStatusEnum.refunded
+    ) {
+      updateData.paymentStatus = PaymentStatusEnum.refunded;
+      updateData.paidAmount = 0;
+      updateData.remainingAmount = 0;
+      try {
+        await this.walletService.refundBooking(
+          booking.userId,
+          actualPaidAmount,
+          booking._id.toString(),
+        );
+      } catch (refundError) {
+        console.error('Wallet refund failed on updateStatus to cancelled:', refundError);
+      }
+    } else if (updateDto.paymentStatus === PaymentStatusEnum.unpaid ||
       updateDto.paymentStatus === PaymentStatusEnum.pay_at_venue
     ) {
       updateData.paidAmount = 0;
@@ -1503,28 +1727,6 @@ export class BookingService implements OnModuleInit {
       }
     }
 
-    // Handle Status Transition to Cancelled
-    if (
-      updateDto.status === BookingStatusEnum.cancelled &&
-      wasPaid &&
-      actualPaidAmount > 0 &&
-      booking.paymentStatus !== PaymentStatusEnum.refunded &&
-      updateDto.paymentStatus !== PaymentStatusEnum.refunded
-    ) {
-      updateData.paymentStatus = PaymentStatusEnum.refunded;
-      updateData.paidAmount = 0;
-      updateData.remainingAmount = 0;
-      try {
-        await this.walletService.refundBooking(
-          booking.userId,
-          actualPaidAmount,
-          booking._id.toString(),
-        );
-      } catch (refundError) {
-        console.error('Wallet refund failed on updateStatus to cancelled:', refundError);
-      }
-    }
-
     if (Object.keys(updateData).length === 0) {
       throw new BadRequestException('No status fields provided to update');
     }
@@ -1539,8 +1741,12 @@ export class BookingService implements OnModuleInit {
       updateDto.status === BookingStatusEnum.expired
     ) {
       this.bookingGateway.emitSlotReleased(updatedBooking);
+      if (updateDto.status === BookingStatusEnum.cancelled) {
+        this.notifyBookingCancelled(updatedBooking).catch(() => {});
+      }
     } else if (updateDto.status === BookingStatusEnum.confirmed) {
       this.bookingGateway.emitBookingConfirmed(updatedBooking);
+      this.notifyBookingConfirmed(updatedBooking).catch(() => {});
     }
 
     return updatedBooking;

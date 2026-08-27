@@ -35,6 +35,32 @@ export class UpdateCustomerUserDto {
   @IsString()
   @IsOptional()
   position?: string;
+
+  @ApiPropertyOptional({
+    description: 'Avatar image URL or path',
+    example: 'https://lh3.googleusercontent.com/...',
+  })
+  @IsString()
+  @IsOptional()
+  avatar?: string;
+
+  @ApiPropertyOptional({
+    description: 'Customer account status',
+    enum: CustomerStatusEnum,
+    example: CustomerStatusEnum.active,
+  })
+  @IsEnum(CustomerStatusEnum)
+  @IsOptional()
+  status?: CustomerStatusEnum;
+
+  @ApiPropertyOptional({
+    description: 'Preferred language / locale',
+    enum: ['ar', 'en'],
+    example: 'ar',
+  })
+  @IsString()
+  @IsOptional()
+  locale?: string;
 }
 
 export class UpdateAdminUserDto {
