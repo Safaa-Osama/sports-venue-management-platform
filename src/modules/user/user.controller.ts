@@ -261,6 +261,8 @@ export class UserController {
     @User() user: any,
     @Body() body: RegisterPushTokenDto,
   ) {
+    console.log('[UserController] Register push token:', body);
+    console.log('[UserController] User:', user);
     return this.userService.registerPushToken(user, body);
   }
 
