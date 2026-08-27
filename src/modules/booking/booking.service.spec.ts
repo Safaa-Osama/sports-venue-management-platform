@@ -16,6 +16,17 @@ import {
   PaymentStatusEnum,
 } from 'src/common/enums/bookingEnum';
 import { Types } from 'mongoose';
+import { PushNotificationService } from '../push-notification/push-notification.service';
+
+const mockPushNotificationService = {
+  sendToCustomer: jest.fn().mockResolvedValue(undefined),
+  sendToAdmin: jest.fn().mockResolvedValue(undefined),
+  sendToUser: jest.fn().mockResolvedValue(undefined),
+  broadcastToAllCustomers: jest.fn().mockResolvedValue(undefined),
+  registerPushToken: jest.fn().mockResolvedValue(true),
+  removePushToken: jest.fn().mockResolvedValue(true),
+  pruneInvalidToken: jest.fn().mockResolvedValue(undefined),
+};
 
 jest.mock('qrcode', () => ({
   toDataURL: jest.fn().mockResolvedValue('data:image/png;base64,mockQrCode'),
@@ -122,6 +133,7 @@ describe('BookingService (R2 Multi-Slot & R3 Minimum Deposit)', () => {
         { provide: PaymobService, useValue: mockPaymobService },
         { provide: BookingGateway, useValue: mockBookingGateway },
         { provide: RedisService, useValue: mockRedisService },
+        { provide: PushNotificationService, useValue: mockPushNotificationService },
         { provide: getConnectionToken(), useValue: mockConnection },
       ],
     }).compile();
@@ -137,6 +149,7 @@ describe('BookingService (R2 Multi-Slot & R3 Minimum Deposit)', () => {
     mockRedisService.acquireLock.mockResolvedValue(true);
     mockRedisService.releaseLock.mockResolvedValue(true);
     mockRedisService.getValue.mockResolvedValue(null);
+    mockWalletService.getOrCreateWallet.mockResolvedValue({ balance: 0 });
   });
 
   describe('createBooking (R2 Multi-Slot)', () => {

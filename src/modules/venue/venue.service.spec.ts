@@ -4,6 +4,14 @@ import { VenueService } from './venue.service';
 import { VenueRepo } from 'src/common/repositories/venue-repo';
 import { S3Service } from 'src/common/services/s3Service/s3.service';
 import { Types } from 'mongoose';
+import { PushNotificationService } from '../push-notification/push-notification.service';
+
+const mockPushNotificationService = {
+  sendToCustomer: jest.fn().mockResolvedValue(undefined),
+  sendToAdmin: jest.fn().mockResolvedValue(undefined),
+  sendToUser: jest.fn().mockResolvedValue(undefined),
+  broadcastToAllCustomers: jest.fn().mockResolvedValue(undefined),
+};
 
 describe('VenueService', () => {
   let service: VenueService;
@@ -37,6 +45,7 @@ describe('VenueService', () => {
         VenueService,
         { provide: VenueRepo, useValue: mockVenueRepo },
         { provide: S3Service, useValue: mockS3Service },
+        { provide: PushNotificationService, useValue: mockPushNotificationService },
       ],
     }).compile();
 

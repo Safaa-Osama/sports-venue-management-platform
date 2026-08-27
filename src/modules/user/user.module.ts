@@ -9,9 +9,10 @@ import { TokenService } from 'src/common/services/token/tokenService';
 import { JwtService } from '@nestjs/jwt';
 import RedisService from 'src/common/services/redis/redis.service';
 import { S3Service } from 'src/common/services/s3Service/s3.service';
+import { PushNotificationModule } from '../push-notification/push-notification.module';
 
 @Module({
-  imports: [customerUserModel, adminUserModel],
+  imports: [customerUserModel, adminUserModel, PushNotificationModule],
   controllers: [UserController],
   providers: [
     UserService,

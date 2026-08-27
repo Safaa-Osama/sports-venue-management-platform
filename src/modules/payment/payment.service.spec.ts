@@ -11,6 +11,14 @@ import {
   PaymentStatusEnum,
 } from 'src/common/enums/bookingEnum';
 import { Types } from 'mongoose';
+import { PushNotificationService } from '../push-notification/push-notification.service';
+
+const mockPushNotificationService = {
+  sendToCustomer: jest.fn().mockResolvedValue(undefined),
+  sendToAdmin: jest.fn().mockResolvedValue(undefined),
+  sendToUser: jest.fn().mockResolvedValue(undefined),
+  broadcastToAllCustomers: jest.fn().mockResolvedValue(undefined),
+};
 
 describe('PaymentService (Webhook Group & Deposit Resolution)', () => {
   let service: PaymentService;
@@ -62,6 +70,7 @@ describe('PaymentService (Webhook Group & Deposit Resolution)', () => {
         { provide: WalletService, useValue: mockWalletService },
         { provide: PaymobService, useValue: mockPaymobService },
         { provide: BookingGateway, useValue: mockBookingGateway },
+        { provide: PushNotificationService, useValue: mockPushNotificationService },
       ],
     }).compile();
 

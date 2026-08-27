@@ -11,9 +11,10 @@ import { AdminUserRepo } from 'src/common/repositories/admin-user-repo';
 import RedisService from 'src/common/services/redis/redis.service';
 import customerUserModel from '../user/entities/customer-user.entity';
 import adminUserModel from '../user/entities/admin-user.entity';
+import { PushNotificationModule } from '../push-notification/push-notification.module';
 
 @Module({
-  imports: [venueModel, customerUserModel, adminUserModel],
+  imports: [venueModel, customerUserModel, adminUserModel, PushNotificationModule],
   controllers: [VenueController],
   providers: [
     VenueService,

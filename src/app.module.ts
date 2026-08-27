@@ -47,6 +47,7 @@ import { PushNotificationModule } from './modules/push-notification/push-notific
       },
     }),
     JwtModule.register({ global: true }),
+    PushNotificationModule,
     VenueModule,
     AuthModule,
     UserModule,
