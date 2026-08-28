@@ -149,6 +149,43 @@ export class PaymobService {
   }
 
   /**
+   * Queries Paymob API to check transaction status by special reference ID.
+   * Used for automated server-side reconciliation of orphaned pending payments.
+   */
+  async inquireTransactionByReference(referenceId: string): Promise<any> {
+    if (!this.secretKey || !referenceId) return null;
+    try {
+      const response = await fetch(
+        `https://accept.paymob.com/api/acceptance/transactions?special_reference=${encodeURIComponent(referenceId)}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Token ${this.secretKey}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      const results = Array.isArray(data) ? data : data?.results || [];
+      if (results.length > 0) {
+        return results[0];
+      }
+      return null;
+    } catch (err: any) {
+      console.warn(
+        `⚠️ [PaymobService] Failed to inquire transaction for reference ${referenceId}:`,
+        err?.message || err,
+      );
+      return null;
+    }
+  }
+
+  /**
    * Performs constant-time, timing-safe comparison between two HMAC hex digests.
    */
   private safeCompareHmac(calculated: string, received: string): boolean {

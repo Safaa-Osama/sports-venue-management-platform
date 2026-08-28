@@ -172,6 +172,7 @@ export class UserService {
     if (!userId) {
       throw new BadRequestException('User ID not found in token');
     }
+    console.log('[UserService] Token:', dto.token);
     const success = await this.pushService.registerPushToken(
       userId,
       dto.token,

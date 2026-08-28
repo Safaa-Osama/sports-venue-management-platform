@@ -78,13 +78,21 @@ export class BookingGateway
   emitBookingConfirmed(booking: any) {
     const venueIdStr = booking.venueId?.toString();
     const venueRoom = `venue_${venueIdStr}`;
-    this.server.to(venueRoom).emit('booking_confirmed', {
+    const payload = {
       bookingId: booking._id?.toString(),
+      _id: booking._id?.toString(),
+      groupId: booking.groupId,
       venueId: venueIdStr,
       date: booking.date,
       startTime: booking.startTime,
       endTime: booking.endTime,
-    });
+      status: booking.status,
+      paymentStatus: booking.paymentStatus,
+    };
+    if (this.server) {
+      this.server.to(venueRoom).emit('booking_confirmed', payload);
+      this.server.emit('booking_confirmed', payload);
+    }
   }
 
   emitOwnerNotification(ownerId: string, booking: any, eventType: string) {

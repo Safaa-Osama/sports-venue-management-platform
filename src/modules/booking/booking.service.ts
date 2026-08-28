@@ -1186,23 +1186,14 @@ export class BookingService implements OnModuleInit {
         userPhone = anyUser.phone;
       }
 
-      let checkoutData: any;
-      try {
-        checkoutData = await this.paymobService.createPaymentIntention({
-          bookingId: groupId || createdBookings[0]._id.toString(),
-          transactionId,
-          amount: paymobRemainder,
-          userEmail: anyUser.email || 'player@arenahub.com',
-          userName: anyUser.userName || anyUser.name || 'Arena Player',
-          userPhone,
-        });
-      } catch (paymobErr: any) {
-        checkoutData = {
-          clientSecret: 'mock_client_secret_' + transactionId,
-          publicKey: 'mock_public_key',
-          redirectUrl: `https://accept.paymob.com/standalone?ref=${transactionId}`,
-        };
-      }
+      const checkoutData = await this.paymobService.createPaymentIntention({
+        bookingId: groupId || createdBookings[0]._id.toString(),
+        transactionId,
+        amount: paymobRemainder,
+        userEmail: anyUser.email || 'player@arenahub.com',
+        userName: anyUser.userName || anyUser.name || 'Arena Player',
+        userPhone,
+      });
 
       for (const b of createdBookings) {
         const updated = await this.bookingRepo.findByIdAndUpdate({

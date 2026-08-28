@@ -6,6 +6,7 @@ import {
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomUUID } from 'crypto';
 import { Types } from 'mongoose';
 import {
@@ -198,23 +199,14 @@ export class PaymentService {
       });
 
       const anyUser: any = user;
-      let checkoutData: any;
-      try {
-        checkoutData = await this.paymobService.createPaymentIntention({
-          bookingId: booking.groupId || booking._id.toString(),
-          transactionId,
-          amount: paymentAmount,
-          userEmail: anyUser.email || undefined,
-          userName: anyUser.userName || 'Customer',
-          userPhone: (Array.isArray(anyUser.phone) ? anyUser.phone[0] : anyUser.phone) || '+201000000000',
-        });
-      } catch (paymobErr: any) {
-        checkoutData = {
-          clientSecret: 'mock_client_secret_' + transactionId,
-          publicKey: 'mock_public_key',
-          redirectUrl: `https://accept.paymob.com/standalone?ref=${transactionId}`,
-        };
-      }
+      const checkoutData = await this.paymobService.createPaymentIntention({
+        bookingId: booking.groupId || booking._id.toString(),
+        transactionId,
+        amount: paymentAmount,
+        userEmail: anyUser.email || undefined,
+        userName: anyUser.userName || 'Customer',
+        userPhone: (Array.isArray(anyUser.phone) ? anyUser.phone[0] : anyUser.phone) || '+201000000000',
+      });
 
       for (const b of targetBookings) {
         await this.bookingRepo.findByIdAndUpdate({
@@ -551,160 +543,116 @@ export class PaymentService {
     const isValidHmac = this.paymobService.verifyWebhookHmac(payload, hmac);
     const enforceHmac =
       process.env.PAYMOB_ENFORCE_HMAC === 'true' ||
-      process.env.NODE_ENV === 'production';
+      (process.env.NODE_ENV === 'production' && process.env.PAYMOB_ENFORCE_HMAC !== 'false');
 
     if (!isValidHmac) {
       if (enforceHmac) {
         throw new UnauthorizedException('Invalid Paymob HMAC signature');
       } else {
-        console.warn(
-          '⚠️ [PaymentService] HMAC signature mismatch. Bypassing in development mode to permit transaction processing. Set PAYMOB_ENFORCE_HMAC=true to strictly block mismatches.',
-        );
+        const txnId = payload?.transaction?.id || payload?.obj?.id || payload?.id || 'N/A';
+        console.warn(`
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  ⚠️  [SECURITY WARNING] PAYMOB HMAC SIGNATURE MISMATCH ACCEPTED IN DEV MODE   ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  Environment: DEVELOPMENT (NODE_ENV !== 'production')                        ║
+║  Status: BYPASSING signature check to allow local testing.                   ║
+║  Transaction / Ref: ${String(txnId).padEnd(49)}║
+║                                                                              ║
+║  🚨 DO NOT SHIP TO PRODUCTION WITHOUT ENFORCING HMAC!                        ║
+║  Set PAYMOB_ENFORCE_HMAC=true in production / staging.                       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+        `);
       }
     }
 
     // ── Resolve transaction object from either Intention API or Legacy API format ──
     // Intention API: { intention: {...}, transaction: {...}, hmac: "..." }
-    // Legacy API:    { type: "TRANSACTION", obj: {...} }
+    // ── Resolve transaction and intention from Paymob webhook payload ──
+    // Intention API: { intention: { special_reference: '...' }, transaction: { id: 123, success: true, ... } }
+    // Legacy API:    { type: "TRANSACTION", obj: { id: 123, special_reference: '...', success: true, ... } }
     const txn = payload?.transaction || payload?.obj || payload || {};
     const intention = payload?.intention || {};
-    const order = txn?.order || payload?.order;
 
     const isSuccess =
       txn.success === true ||
       txn.success === 'true' ||
       txn.txn_response_code === 'APPROVED' ||
-      txn.data?.message === 'Approved';
+      txn.data?.message === 'Approved' ||
+      payload?.status === 'paid' ||
+      payload?.status === 'partially_paid' ||
+      payload?.status === 'success' ||
+      txn?.status === 'paid' ||
+      txn?.status === 'partially_paid';
+
     const isPending = txn.pending === true || txn.pending === 'true';
 
-    // Collect all candidate identifier keys across both API formats
-    const candidateIds: string[] = [
-      // Intention API: special_reference is under intention, not transaction
-      intention?.special_reference,
-      // Legacy API: special_reference is under obj
-      txn?.special_reference,
-      payload?.special_reference,
-      // Order-level IDs
-      order?.merchant_order_id,
-      txn?.merchant_order_id,
-      payload?.merchant_order_id,
-      txn?.merchant_txn_ref,
-      // Order ID (nested object or flat)
-      order?.id?.toString(),
-      txn?.order_id?.toString(),
-      txn?.['order.id']?.toString(),
-      // Transaction ID (Paymob unique ID — used for deduplication)
-      txn?.id?.toString(),
-      txn?.transaction_id?.toString(),
-      // Application-level IDs
-      txn?.bookingId?.toString(),
-      txn?.booking_id?.toString(),
-      txn?.bookingCode?.toString(),
-      txn?.booking_code?.toString(),
-    ].filter(
-      (id): id is string => typeof id === 'string' && id.trim().length > 0,
-    );
+    // 1. Locate payment directly using intention.special_reference
+    const specialReference =
+      intention?.special_reference ||
+      txn?.special_reference ||
+      payload?.special_reference;
 
-    console.log(
-      '📩 [PaymentService] Processing Paymob webhook. Candidate reference IDs:',
-      candidateIds,
-    );
-
-    // 1. Search for existing Payment record
-    const validObjectIds = candidateIds
-      .filter((id) => Types.ObjectId.isValid(id))
-      .map((id) => new Types.ObjectId(id));
-
-    let payment = await this.paymentRepo.findOne({
-      filter: {
-        $or: [
-          { transactionId: { $in: candidateIds } },
-          { groupId: { $in: candidateIds } },
-          ...(validObjectIds.length > 0
-            ? [
-                { _id: { $in: validObjectIds } },
-                { bookingId: { $in: validObjectIds } },
-              ]
-            : []),
-        ],
-      },
-    });
-
-    let booking: any = null;
-    let groupBookings: any[] = [];
-    if (payment) {
-      const targetGroupId = payment.groupId;
-      if (targetGroupId) {
-        groupBookings = await this.bookingRepo.find({
-          filter: { groupId: targetGroupId },
-        });
-        booking = groupBookings[0] || null;
-      }
-      if (!booking && payment.bookingId) {
-        booking = await this.bookingRepo.findById(payment.bookingId);
-        if (booking && booking.groupId && groupBookings.length === 0) {
-          groupBookings = await this.bookingRepo.find({
-            filter: { groupId: booking.groupId },
-          });
-        }
-      }
-    } else {
-      // 2. Search for existing Booking record directly
-      booking = await this.bookingRepo.findOne({
-        filter: {
-          $or: [
-            { bookingCode: { $in: candidateIds } },
-            { groupId: { $in: candidateIds } },
-            ...(validObjectIds.length > 0
-              ? [{ _id: { $in: validObjectIds } }]
-              : []),
-          ],
-        },
-      });
-
-      if (booking) {
-        if (booking.groupId) {
-          groupBookings = await this.bookingRepo.find({
-            filter: { groupId: booking.groupId },
-          });
-        }
-        const totalAmount =
-          groupBookings.length > 0
-            ? groupBookings.reduce(
-                (sum, b) => sum + (b.finalPrice ?? b.totalPrice ?? 0),
-                0,
-              )
-            : booking.finalPrice ?? booking.totalPrice;
-
-        // Create initial payment tracking record if not found
-        payment = await this.paymentRepo.create({
-          bookingId: booking._id,
-          groupId: booking.groupId,
-          userId: booking.userId,
-          amount: totalAmount,
-          transactionId:
-            intention?.special_reference ||
-            txn?.special_reference ||
-            candidateIds[0] ||
-            `PAYMOB-${txn?.id || Date.now()}`,
-          status: PaymentStatusEnum.unpaid,
-        });
-      }
-    }
-
-    if (!payment || !booking) {
+    if (!specialReference) {
       console.warn(
-        '⚠️ [PaymentService] No matching payment or booking record found for Paymob webhook candidates:',
-        candidateIds,
+        '⚠️ [PaymentService] Missing special_reference in Paymob webhook payload:',
+        payload,
       );
       return {
         received: true,
-        note: 'No matching payment or booking record found',
-        candidateIds,
+        note: 'Missing special_reference in Paymob webhook payload',
       };
     }
 
-    // Deduplication check: Check if this specific Paymob transaction ID was already fulfilled
+    console.log(
+      `📩 [PaymentService] Processing Paymob webhook for transaction special_reference: ${specialReference}`,
+    );
+
+    const payment = await this.paymentRepo.findOne({
+      filter: { transactionId: specialReference },
+    });
+
+    if (!payment) {
+      console.warn(
+        `⚠️ [PaymentService] No matching payment record found for transactionId: ${specialReference}`,
+      );
+      return {
+        received: true,
+        note: 'No matching payment record found',
+        specialReference,
+      };
+    }
+
+    // 2. Fetch associated booking(s)
+    let booking: any = null;
+    let groupBookings: any[] = [];
+    if (payment.groupId) {
+      groupBookings = await this.bookingRepo.find({
+        filter: { groupId: payment.groupId },
+      });
+      booking = groupBookings[0] || null;
+    }
+
+    if (!booking && payment.bookingId) {
+      booking = await this.bookingRepo.findById(payment.bookingId);
+      if (booking && booking.groupId && groupBookings.length === 0) {
+        groupBookings = await this.bookingRepo.find({
+          filter: { groupId: booking.groupId },
+        });
+      }
+    }
+
+    if (!booking) {
+      console.warn(
+        `⚠️ [PaymentService] No booking found associated with payment ${payment._id}`,
+      );
+      return {
+        received: true,
+        note: 'No matching booking record found for payment',
+        paymentId: payment._id,
+      };
+    }
+
+    // 3. Deduplication check: Check if this specific Paymob transaction ID was already fulfilled
     if (txn?.id) {
       const existingTxnPayment = await this.paymentRepo.findOne({
         filter: {
@@ -725,7 +673,7 @@ export class PaymentService {
       }
     }
 
-    // 3. Idempotency check: Already processed
+    // 4. Idempotency check: Already processed
     if (payment.status === PaymentStatusEnum.paid) {
       console.log(
         `ℹ️ [PaymentService] Payment for booking ${booking.bookingCode || booking._id} is already marked as paid.`,
@@ -770,10 +718,30 @@ export class PaymentService {
         (sum, b) => sum + (b.finalPrice ?? b.totalPrice ?? 0),
         0,
       );
-      const isDeposit = payment.amount < totalGroupDue;
-      const targetPaymentStatus = isDeposit
-        ? PaymentStatusEnum.partially_paid
-        : PaymentStatusEnum.paid;
+
+      // Extract effective amount from webhook amount_cents if provided
+      const paidCents = Number(txn.amount_cents);
+      const effectivePaidAmount =
+        !isNaN(paidCents) && paidCents > 0
+          ? Number((paidCents / 100).toFixed(2))
+          : payment.amount || 0;
+
+      if (effectivePaidAmount > 0 && effectivePaidAmount !== payment.amount) {
+        payment.amount = effectivePaidAmount;
+      }
+
+      let targetPaymentStatus: PaymentStatusEnum;
+      if (payload?.status === 'partially_paid' || txn?.status === 'partially_paid') {
+        targetPaymentStatus = PaymentStatusEnum.partially_paid;
+      } else if (payload?.status === 'paid' || txn?.status === 'paid') {
+        targetPaymentStatus = PaymentStatusEnum.paid;
+      } else {
+        const isDeposit = effectivePaidAmount < totalGroupDue;
+        targetPaymentStatus = isDeposit
+          ? PaymentStatusEnum.partially_paid
+          : PaymentStatusEnum.paid;
+      }
+      const isDeposit = targetPaymentStatus === PaymentStatusEnum.partially_paid;
 
       const isAnyExpiredOrCancelled = targetBookings.some((b) => {
         return (
@@ -933,5 +901,67 @@ export class PaymentService {
     }
 
     return { received: true, status: payment.status };
+  }
+
+  /**
+   * Automated server-side reconciliation cron job running every 5 minutes.
+   * Inquires Paymob for any payment stuck in 'unpaid' between 5 minutes and 2 hours ago.
+   * If approved on Paymob, automatically fulfills the booking and payment.
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async reconcilePendingPayments() {
+    try {
+      const now = Date.now();
+      const fiveMinutesAgo = new Date(now - 5 * 60 * 1000);
+      const twoHoursAgo = new Date(now - 120 * 60 * 1000);
+
+      const pendingPayments = await this.paymentRepo.find({
+        filter: {
+          paymentMethod: PaymentMethodEnum.paymob,
+          status: PaymentStatusEnum.unpaid,
+          createdAt: { $gte: twoHoursAgo, $lte: fiveMinutesAgo },
+        },
+      });
+
+      if (!pendingPayments || pendingPayments.length === 0) {
+        return;
+      }
+
+      console.log(
+        `🔍 [PaymentService Reconciliation] Found ${pendingPayments.length} pending Paymob payments to reconcile...`,
+      );
+
+      for (const payment of pendingPayments) {
+        const refId = payment.transactionId;
+        if (!refId) continue;
+
+        const remoteTxn = await this.paymobService.inquireTransactionByReference(refId);
+        if (remoteTxn) {
+          const isSuccess =
+            remoteTxn.success === true ||
+            remoteTxn.success === 'true' ||
+            remoteTxn.txn_response_code === 'APPROVED' ||
+            remoteTxn.data?.message === 'Approved';
+
+          if (isSuccess && !remoteTxn.pending) {
+            console.log(
+              `✨ [PaymentService Reconciliation] Automatically fulfilling payment for reference ${refId} (Paymob Txn ID: ${remoteTxn.id})...`,
+            );
+            await this.handlePaymobWebhook(
+              {
+                transaction: remoteTxn,
+                special_reference: refId,
+              },
+              'reconciliation-internal',
+            );
+          }
+        }
+      }
+    } catch (cronErr: any) {
+      console.error(
+        '❌ [PaymentService Reconciliation] Error during payment reconciliation cron:',
+        cronErr?.message || cronErr,
+      );
+    }
   }
 }

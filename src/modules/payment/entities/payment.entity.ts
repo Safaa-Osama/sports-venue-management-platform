@@ -35,6 +35,9 @@ export class Payment {
   @Prop({ type: String, required: true, unique: true })
   transactionId: string;
 
+  @Prop({ type: String, required: false, index: true })
+  paymobTransactionId?: string;
+
   @Prop({
     type: String,
     enum: PaymentStatusEnum,
