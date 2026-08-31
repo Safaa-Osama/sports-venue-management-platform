@@ -52,7 +52,7 @@ export class UserController {
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid or missing token' })
   @ApiResponse({ status: 404, description: 'Customer not found' })
   @auth({ roles: [RoleEnum.customer, RoleEnum.user] })
-  getCustomerProfile(@User() user: any) {
+  getCustomerProfile(@User() user: any): Promise<any> {
     return this.userService.getCustomerProfile(user);
   }
 
@@ -110,7 +110,7 @@ export class UserController {
       RoleEnum.customer,
     ],
   })
-  getCustomerById(@Param('id') id: string) {
+  getCustomerById(@Param('id') id: string): Promise<any> {
     return this.userService.getCustomerById(id);
   }
 
@@ -262,6 +262,16 @@ export class UserController {
     @Body() body: RegisterPushTokenDto,
   ) {
     return this.userService.registerPushToken(user, body);
+  }
+
+  @Post('push-token/guest')
+  @ApiOperation({
+    summary: 'Register Guest/Anonymous Device Push Token',
+    description: 'Registers or updates an Expo push token for an unauthenticated device to receive global promo broadcasts.',
+  })
+  @ApiResponse({ status: 200, description: 'Guest push token registered successfully' })
+  registerGuestPushToken(@Body() body: RegisterPushTokenDto) {
+    return this.userService.registerGuestPushToken(body);
   }
 
   @Delete('push-token')

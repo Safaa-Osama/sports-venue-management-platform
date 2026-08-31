@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   OnModuleInit,
   UnauthorizedException,
@@ -15,8 +17,9 @@ import {
   PaymentMethodEnum,
   PaymentStatusEnum,
 } from 'src/common/enums/bookingEnum';
-import { RoleEnum } from 'src/common/enums/userEnum';
+import { CustomerStatusEnum, RoleEnum } from 'src/common/enums/userEnum';
 import { BookingRepo } from 'src/common/repositories/booking-repo';
+import { CustomerUserRepo } from 'src/common/repositories/customer-user-repo';
 import { PaymentRepo } from 'src/common/repositories/payment-repo';
 import { CouponRepo } from 'src/common/repositories/coupon-repo';
 import { VenueRepo } from 'src/common/repositories/venue-repo';
@@ -55,10 +58,13 @@ const CANCELLATION_DEADLINE_HOURS = 24;
 
 @Injectable()
 export class BookingService implements OnModuleInit {
+  private readonly logger = new Logger(BookingService.name);
+
   constructor(
     private readonly bookingRepo: BookingRepo,
     private readonly paymentRepo: PaymentRepo,
     private readonly venueRepo: VenueRepo,
+    private readonly customerUserRepo: CustomerUserRepo,
     private readonly walletService: WalletService,
     private readonly couponRepo: CouponRepo,
     private readonly paymobService: PaymobService,
@@ -131,6 +137,8 @@ export class BookingService implements OnModuleInit {
         startTime: b.startTime,
         endTime: b.endTime,
         status: b.status,
+        userId: b.userId?.toString(),
+        expiresAt: b.expiresAt,
       };
     });
   }
@@ -263,7 +271,7 @@ export class BookingService implements OnModuleInit {
         }
       }
     } catch (err) {
-      console.error('[BookingService] Failed to process match reminders:', err);
+      this.logger.error('Failed to process match reminders:', err);
     }
   }
 
@@ -294,7 +302,7 @@ export class BookingService implements OnModuleInit {
         },
       ).catch(() => {});
     } catch (err) {
-      console.warn('[BookingService] Failed to send BOOKING_CONFIRMED push notification:', err);
+      this.logger.warn('Failed to send BOOKING_CONFIRMED push notification:', err);
     }
   }
 
@@ -355,7 +363,7 @@ export class BookingService implements OnModuleInit {
         ).catch(() => {});
       }
     } catch (err) {
-      console.warn('[BookingService] Failed to send BOOKING_CANCELLED push notification:', err);
+      this.logger.warn('Failed to send BOOKING_CANCELLED push notification:', err);
     }
   }
 
@@ -514,6 +522,23 @@ export class BookingService implements OnModuleInit {
     }
 
     try {
+      const targetCustomerId = body.customerId || (user?._id ? user._id.toString() : null);
+      if (targetCustomerId && Types.ObjectId.isValid(targetCustomerId)) {
+        const customer = await this.customerUserRepo.findById(new Types.ObjectId(targetCustomerId));
+        if (customer) {
+          if (customer.status === CustomerStatusEnum.suspended || (customer.status as string) === 'suspended') {
+            throw new ForbiddenException(
+              `Account is suspended: ${customer.statusReason || 'Please contact administration.'}`,
+            );
+          }
+          if (customer.status === CustomerStatusEnum.archived || (customer.status as string) === 'archived' || (customer.status as string) === 'inactive') {
+            throw new ForbiddenException(
+              'Account is archived. New bookings cannot be created.',
+            );
+          }
+        }
+      }
+
       const venue = await this.venueRepo.findById(venueId);
       if (!venue) {
         throw new NotFoundException('Venue not found');
@@ -595,10 +620,33 @@ export class BookingService implements OnModuleInit {
           return true;
         });
 
-        if (validOverlaps.length > 0) {
+        const thirdPartyConflicts = validOverlaps.filter((b) => {
+          // If confirmed/completed, it is always a conflict for everyone
+          if (b.status !== BookingStatusEnum.pending) {
+            return true;
+          }
+          // If pending, check if it belongs to someone else
+          const bUserId = b.userId?._id?.toString() || b.userId?.toString();
+          const currentUserId = user._id?.toString();
+          return bUserId !== currentUserId;
+        });
+
+        if (thirdPartyConflicts.length > 0) {
           throw new ConflictException(
             'Selected time slot is already booked or reserved for this venue',
           );
+        }
+
+        // If the current user has active pending holds on any of these slots, cleanly replace them
+        const myExistingPendingHolds = validOverlaps.filter((b) => {
+          if (b.status !== BookingStatusEnum.pending) return false;
+          const bUserId = b.userId?._id?.toString() || b.userId?.toString();
+          const currentUserId = user._id?.toString();
+          return bUserId === currentUserId;
+        });
+
+        for (const myOldHold of myExistingPendingHolds) {
+          await this.bookingRepo.findByIdAndDelete(myOldHold._id).catch(() => {});
         }
 
         let totalRawPrice = 0;
@@ -608,12 +656,45 @@ export class BookingService implements OnModuleInit {
           totalPrice: number;
         }> = [];
 
+        const bookingDateStr =
+          typeof date === 'string'
+            ? date.split('T')[0]
+            : bookingDate.toISOString().split('T')[0];
+
         for (const slot of rawSlots) {
           let slotPrice = 0;
-          const durationHours = slot.endTime - slot.startTime;
 
-          if (venue.customHourPrices && venue.customHourPrices.length > 0) {
-            for (let hour = slot.startTime; hour < slot.endTime; hour++) {
+          for (let hour = slot.startTime; hour < slot.endTime; hour++) {
+            let hourPrice: number | null = null;
+
+            // 1. Check Date-Specific Custom Prices (Highest Precedence)
+            if (venue.customDatePrices && venue.customDatePrices.length > 0) {
+              const dateRule = venue.customDatePrices.find((r) => {
+                const rDate =
+                  typeof r.date === 'string'
+                    ? r.date.split('T')[0]
+                    : new Date(r.date).toISOString().split('T')[0];
+                return (
+                  rDate === bookingDateStr &&
+                  hour >= r.startHour &&
+                  hour < r.endHour
+                );
+              });
+              if (
+                dateRule &&
+                typeof dateRule.pricePerHour === 'number' &&
+                dateRule.pricePerHour >= 0
+              ) {
+                hourPrice = dateRule.pricePerHour;
+              }
+            }
+
+            // 2. Check Recurring Custom Hour Prices (Second Precedence)
+            if (
+              hourPrice === null &&
+              venue.customHourPrices &&
+              venue.customHourPrices.length > 0
+            ) {
               const customPrice = venue.customHourPrices.find(
                 (c) => c.hour === hour,
               );
@@ -622,13 +703,16 @@ export class BookingService implements OnModuleInit {
                 typeof customPrice.pricePerHour === 'number' &&
                 customPrice.pricePerHour >= 0
               ) {
-                slotPrice += customPrice.pricePerHour;
-              } else {
-                slotPrice += venue.defaultHourPrice;
+                hourPrice = customPrice.pricePerHour;
               }
             }
-          } else {
-            slotPrice = venue.defaultHourPrice * durationHours;
+
+            // 3. Fallback to defaultHourPrice
+            if (hourPrice === null) {
+              hourPrice = venue.defaultHourPrice;
+            }
+
+            slotPrice += hourPrice;
           }
 
           slotPricings.push({
@@ -1607,18 +1691,20 @@ export class BookingService implements OnModuleInit {
         : 0;
 
     let targetPaymentStatus = booking.paymentStatus;
+    let refundedWalletData: any = null;
 
     if (wasPaid && actualPaidAmount > 0) {
       targetPaymentStatus = PaymentStatusEnum.refunded;
       try {
-        await this.walletService.refundBooking(
+        const refundRes = await this.walletService.refundBooking(
           booking.userId,
           actualPaidAmount,
           booking._id.toString(),
           user,
         );
+        refundedWalletData = refundRes?.updatedWallet;
       } catch (refundError) {
-        console.error('Wallet refund failed on booking cancellation:', refundError);
+        this.logger.error('Wallet refund failed on booking cancellation:', refundError);
       }
     }
 
@@ -1635,6 +1721,14 @@ export class BookingService implements OnModuleInit {
 
     if (updatedBooking) {
       this.bookingGateway.emitSlotReleased(updatedBooking);
+      this.bookingGateway.emitBookingCancelled(updatedBooking, wasPaid ? actualPaidAmount : 0);
+      if (refundedWalletData) {
+        this.bookingGateway.emitWalletUpdated(booking.userId.toString(), {
+          balance: refundedWalletData.balance,
+          reason: `Refund for cancelled booking #${booking._id}`,
+          bookingId: booking._id.toString(),
+        });
+      }
       this.notifyBookingCancelled(updatedBooking).catch(() => {});
     }
 
@@ -1659,6 +1753,7 @@ export class BookingService implements OnModuleInit {
         : 0;
 
     const updateData: any = {};
+    let refundedWalletData: any = null;
     if (updateDto.status) updateData.status = updateDto.status;
     if (updateDto.paymentStatus) {
       updateData.paymentStatus = updateDto.paymentStatus;
@@ -1688,13 +1783,14 @@ export class BookingService implements OnModuleInit {
       updateData.paidAmount = 0;
       updateData.remainingAmount = 0;
       try {
-        await this.walletService.refundBooking(
+        const refundRes = await this.walletService.refundBooking(
           booking.userId,
           actualPaidAmount,
           booking._id.toString(),
         );
+        refundedWalletData = refundRes?.updatedWallet;
       } catch (refundError) {
-        console.error('Wallet refund failed on updateStatus to cancelled:', refundError);
+        this.logger.error('Wallet refund failed on updateStatus to cancelled:', refundError);
       }
     } else if (updateDto.paymentStatus === PaymentStatusEnum.unpaid ||
       updateDto.paymentStatus === PaymentStatusEnum.pay_at_venue
@@ -1707,13 +1803,14 @@ export class BookingService implements OnModuleInit {
       // If was paid and not already refunded, add to customer wallet
       if (wasPaid && actualPaidAmount > 0 && booking.paymentStatus !== PaymentStatusEnum.refunded) {
         try {
-          await this.walletService.refundBooking(
+          const refundRes = await this.walletService.refundBooking(
             booking.userId,
             actualPaidAmount,
             booking._id.toString(),
           );
+          refundedWalletData = refundRes?.updatedWallet;
         } catch (refundError) {
-          console.error('Wallet refund failed on updateStatus to refunded:', refundError);
+          this.logger.error('Wallet refund failed on updateStatus to refunded:', refundError);
         }
       }
     }
@@ -1733,6 +1830,14 @@ export class BookingService implements OnModuleInit {
     ) {
       this.bookingGateway.emitSlotReleased(updatedBooking);
       if (updateDto.status === BookingStatusEnum.cancelled) {
+        this.bookingGateway.emitBookingCancelled(updatedBooking, wasPaid ? actualPaidAmount : 0);
+        if (refundedWalletData) {
+          this.bookingGateway.emitWalletUpdated(booking.userId.toString(), {
+            balance: refundedWalletData.balance,
+            reason: `Admin cancellation refund for booking #${booking._id}`,
+            bookingId: booking._id.toString(),
+          });
+        }
         this.notifyBookingCancelled(updatedBooking).catch(() => {});
       }
     } else if (updateDto.status === BookingStatusEnum.confirmed) {
@@ -1749,7 +1854,7 @@ export class BookingService implements OnModuleInit {
       options: {
         populate: [
           { path: 'venueId', select: 'venueName address' },
-          { path: 'userId', select: 'userName email phone' },
+          { path: 'userId', select: 'userName email phone status statusReason' },
         ],
       },
     });
@@ -1763,6 +1868,187 @@ export class BookingService implements OnModuleInit {
         booking.status !== BookingStatusEnum.cancelled &&
         booking.status !== BookingStatusEnum.expired,
       booking,
+    };
+  }
+
+  async cancelUpcomingBookingsForSuspendedUser(
+    userId: string | Types.ObjectId,
+    suspensionReason: string,
+  ): Promise<{
+    cancelledCount: number;
+    totalRefunded: number;
+    cancelledBookings: any[];
+  }> {
+    const uId = typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const currentHour = now.getHours();
+
+    // Query active / confirmed / pending bookings for this customer
+    const bookings: any[] = await this.bookingRepo.find({
+      filter: {
+        userId: uId,
+        status: {
+          $in: [
+            BookingStatusEnum.confirmed,
+            BookingStatusEnum.pending,
+          ],
+        },
+      },
+    });
+
+    if (!bookings || bookings.length === 0) {
+      return { cancelledCount: 0, totalRefunded: 0, cancelledBookings: [] };
+    }
+
+    // Filter to only upcoming bookings from today onwards
+    const upcomingBookings = bookings.filter((b: any) => {
+      if (!b.date) return false;
+      const bDateVal: any = b.date;
+      const bDateStr =
+        typeof bDateVal === 'string'
+          ? bDateVal.split('T')[0]
+          : new Date(bDateVal).toISOString().split('T')[0];
+      if (bDateStr > todayStr) return true;
+      if (bDateStr === todayStr && (b.endTime || b.startTime) > currentHour) return true;
+      return false;
+    });
+
+    const cancelledResults: any[] = [];
+    let totalRefunded = 0;
+
+    for (const booking of upcomingBookings) {
+      // Calculate hours difference until match start time
+      const bDate = new Date(booking.date);
+      const year = bDate.getUTCFullYear();
+      const month = bDate.getUTCMonth();
+      const day = bDate.getUTCDate();
+      const bookingStartDateTime = new Date(year, month, day, booking.startTime, 0, 0);
+      const hoursDifference =
+        (bookingStartDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+      const wasPaid =
+        booking.paymentStatus === PaymentStatusEnum.paid ||
+        booking.paymentStatus === PaymentStatusEnum.partially_paid;
+
+      const actualPaidAmount =
+        booking.paidAmount !== undefined && booking.paidAmount !== null && booking.paidAmount > 0
+          ? booking.paidAmount
+          : wasPaid
+          ? (booking.finalPrice ?? booking.totalPrice ?? 0)
+          : 0;
+
+      // Tiered refund policy on account suspension:
+      // > 24 hours: 100% refund (0% penalty)
+      // 3 to 24 hours: 50% refund (50% late cancellation penalty)
+      // < 3 hours: 0% refund (100% fee for imminent match)
+      let refundPercentage = 100;
+      if (hoursDifference < 3) {
+        refundPercentage = 0;
+      } else if (hoursDifference < 24) {
+        refundPercentage = 50;
+      }
+
+      const refundAmount = Math.round((actualPaidAmount * refundPercentage) / 100);
+
+      let refundedWalletData: any = null;
+      if (wasPaid && refundAmount > 0) {
+        try {
+          const refundRes = await this.walletService.refundBooking(
+            booking.userId,
+            refundAmount,
+            booking._id.toString(),
+            undefined,
+            undefined,
+            `Refund for booking #${booking.bookingCode || booking._id} cancelled due to account suspension (${refundPercentage}% refund: ${refundAmount} EGP)`,
+          );
+          refundedWalletData = refundRes?.updatedWallet;
+          totalRefunded += refundAmount;
+        } catch (refundError) {
+          this.logger.error(
+            `Wallet refund failed on auto-cancellation of booking #${booking._id}:`,
+            refundError,
+          );
+        }
+      }
+
+      // Update booking in DB
+      const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
+        id: booking._id,
+        update: {
+          status: BookingStatusEnum.cancelled,
+          paymentStatus:
+            wasPaid
+              ? refundAmount > 0
+                ? PaymentStatusEnum.refunded
+                : PaymentStatusEnum.paid
+              : PaymentStatusEnum.unpaid,
+          paidAmount: 0,
+          remainingAmount: 0,
+          cancellationReason: `Cancelled automatically due to account suspension: ${suspensionReason || 'No reason provided'} (${refundPercentage}% refund issued: ${refundAmount} EGP)`,
+          cancelledBy: 'system_suspension',
+          cancelledAt: new Date(),
+        },
+      });
+
+      // Emit real-time WebSockets
+      if (updatedBooking) {
+        this.bookingGateway.emitSlotReleased(updatedBooking);
+        this.bookingGateway.emitBookingCancelled(updatedBooking, refundAmount);
+      }
+
+      if (refundedWalletData) {
+        this.bookingGateway.emitWalletUpdated(booking.userId.toString(), {
+          balance: refundedWalletData.balance,
+          reason: `Auto-refund for booking #${booking.bookingCode || booking._id} (${refundPercentage}%) due to suspension`,
+          bookingId: booking._id.toString(),
+        });
+      }
+
+      // Send Push Notification to Customer
+      let venueName = 'Pitch';
+      if (typeof booking.venueId === 'object' && (booking.venueId as any)?.venueName) {
+        venueName = (booking.venueId as any).venueName;
+      } else if (booking.venueId) {
+        try {
+          const v = await this.venueRepo.findById(booking.venueId.toString());
+          if (v?.venueName) venueName = v.venueName;
+        } catch {
+          // ignore lookup error
+        }
+      }
+
+      const refundInfo =
+        refundAmount > 0
+          ? `تم استرجاع ${refundAmount} ج.م إلى محفظتك بنجاح.`
+          : '';
+
+      this.pushService
+        .sendToCustomer(booking.userId, 'BOOKING_CANCELLED', {
+          userName: 'Customer',
+          bookingCode: booking.bookingCode || 'N/A',
+          venueName,
+          refundInfo,
+          refundAmount: refundAmount.toString(),
+        })
+        .catch(() => {});
+
+      cancelledResults.push({
+        bookingId: booking._id,
+        bookingCode: booking.bookingCode,
+        date: booking.date,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        paidAmount: actualPaidAmount,
+        refundPercentage,
+        refundAmount,
+      });
+    }
+
+    return {
+      cancelledCount: cancelledResults.length,
+      totalRefunded,
+      cancelledBookings: cancelledResults,
     };
   }
 }

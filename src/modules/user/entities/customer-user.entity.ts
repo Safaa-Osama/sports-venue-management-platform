@@ -57,6 +57,15 @@ export class CustomerUser {
   @Prop({ type: String, enum: CustomerStatusEnum, default: CustomerStatusEnum.active, })
   status: CustomerStatusEnum;
 
+  @Prop({ type: String })
+  statusReason?: string;
+
+  @Prop({ type: Date })
+  statusUpdatedAt?: Date;
+
+  @Prop({ type: Types.ObjectId, ref: 'AdminUser' })
+  statusUpdatedBy?: Types.ObjectId;
+
   @Prop({
     type: [
       {

@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { CustomerStatusEnum, ProviderEnum, RoleEnum, } from 'src/common/enums/userEnum';
@@ -13,7 +19,15 @@ import { S3Service } from 'src/common/services/s3Service/s3.service';
 import { compare, hash } from 'src/common/services/securityService/hash';
 import { TokenService } from 'src/common/services/token/tokenService';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
-import { CreateAdminDto, CustomerSendOtpDto, CustomerVerifyOtpDto, DashboardLoginDto, GoogleLoginDto, } from './dto/auth.dto';
+import {
+  CreateAdminDto,
+  CustomerSendOtpDto,
+  CustomerVerifyOtpDto,
+  DashboardLoginDto,
+  GoogleLoginDto,
+  LogoutDto,
+  RefreshTokenDto,
+} from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
@@ -116,12 +130,6 @@ export class AuthService {
       }
     }
 
-    if (customer.status === CustomerStatusEnum.suspended) {
-      throw new ForbiddenException(
-        'Your account has been suspended. Please contact support.',
-      );
-    }
-
     const uuid = randomUUID();
     const accessSecret = this.tokenService.getAccessSecret();
     const refreshSecret = this.tokenService.getRefreshSecret();
@@ -189,7 +197,7 @@ export class AuthService {
       },
       options: {
         secret: accessSecret,
-        expiresIn: '1d',
+        expiresIn: '1h',
         jwtid: uuid,
       },
     });
@@ -248,10 +256,11 @@ export class AuthService {
       },
       options: {
         secret: accessSecret,
-        expiresIn: '1d',
+        expiresIn: '1h',
         jwtid: uuid,
       },
     });
+
 
     const refreshToken = await this.tokenService.generateToken({
       payload: {
@@ -332,10 +341,6 @@ export class AuthService {
       }
     }
 
-    if (user && user.status === CustomerStatusEnum.suspended) {
-      throw new ForbiddenException('Your account has been suspended. Please contact support.');
-    }
-
     const uuid = randomUUID();
     const accessSecret = this.tokenService.getAccessSecret();
     const refreshSecret = this.tokenService.getRefreshSecret();
@@ -350,7 +355,7 @@ export class AuthService {
       },
       options: {
         secret: accessSecret,
-        expiresIn: '1d',
+        expiresIn: '1h',
         jwtid: uuid,
       },
     });
@@ -365,12 +370,160 @@ export class AuthService {
       },
       options: {
         secret: refreshSecret,
-        expiresIn: '7d',
+        expiresIn: '30d',
         jwtid: uuid,
       },
     });
 
     return { user, accessToken, refreshToken };
   }
+
+  async refreshToken(body: RefreshTokenDto): Promise<any> {
+    const { refreshToken } = body;
+    if (!refreshToken) {
+      throw new BadRequestException('Refresh token is required');
+    }
+
+    let decoded: any;
+    try {
+      decoded = await this.tokenService.verifyRefreshToken(refreshToken);
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (!decoded?.jti || !decoded?.id) {
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    // 1. Check if we already processed this refresh token recently (grace window cache)
+    const graceKey = `refresh-grace::${decoded.jti}`;
+    const cachedResponse = await this.redisService.getValue(graceKey);
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+
+    // 2. Check if token was explicitly revoked
+    const revokedKey = this.redisService.revokedKey({
+      userId: decoded.id,
+      jti: decoded.jti,
+    });
+    const isRevoked = await this.redisService.getValue(revokedKey);
+    if (isRevoked) {
+      throw new UnauthorizedException('Refresh token has been revoked');
+    }
+
+    // 3. Fetch user and verify active status
+    let user: any = null;
+    if (decoded.userType === 'customer') {
+      user = await this.customerUserRepo.findOne({ filter: { _id: decoded.id } });
+    } else if (decoded.userType === 'admin') {
+      user = await this.adminUserRepo.findOne({ filter: { _id: decoded.id } });
+    } else {
+      user =
+        (await this.customerUserRepo.findOne({ filter: { _id: decoded.id } })) ||
+        (await this.adminUserRepo.findOne({ filter: { _id: decoded.id } }));
+    }
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const isCustomer = Boolean('walletBalance' in user || decoded.userType === 'customer');
+    const role = user.role || (isCustomer ? RoleEnum.customer : RoleEnum.admin);
+    const userType = isCustomer ? 'customer' : 'admin';
+
+    // 4. Generate new token pair with new JTI
+    const newUuid = randomUUID();
+    const accessSecret = this.tokenService.getAccessSecret();
+    const refreshSecret = this.tokenService.getRefreshSecret();
+
+    const newAccessToken = await this.tokenService.generateToken({
+      payload: {
+        id: user._id,
+        email: user.email,
+        phone: user.phone,
+        userType,
+        role,
+      },
+      options: {
+        secret: accessSecret,
+        expiresIn: '1h',
+        jwtid: newUuid,
+      },
+    });
+
+    const newRefreshToken = await this.tokenService.generateToken({
+      payload: {
+        id: user._id,
+        email: user.email,
+        phone: user.phone,
+        userType,
+        role,
+      },
+      options: {
+        secret: refreshSecret,
+        expiresIn: isCustomer ? '30d' : '7d',
+        jwtid: newUuid,
+      },
+    });
+
+    const sanitizedUser = isCustomer ? user : this.sanitizeUser(user);
+    const result = {
+      user: sanitizedUser,
+      admin: isCustomer ? undefined : sanitizedUser,
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    };
+
+    // 5. Store new response in grace window cache for 25s so concurrent requests succeed
+    await this.redisService.setValue({
+      key: graceKey,
+      value: result,
+      ttl: 25,
+    });
+
+    // 6. Revoke the old refresh token jti
+    await this.redisService.setValue({
+      key: revokedKey,
+      value: '1',
+      ttl: isCustomer ? 30 * 24 * 3600 : 7 * 24 * 3600,
+    });
+
+    return result;
+  }
+
+  async logout(userPayload: any, body?: LogoutDto): Promise<any> {
+    if (userPayload?.id && userPayload?.jti) {
+      await this.redisService.setValue({
+        key: this.redisService.revokedKey({
+          userId: userPayload.id,
+          jti: userPayload.jti,
+        }),
+        value: '1',
+        ttl: 24 * 3600,
+      });
+    }
+
+    if (body?.refreshToken) {
+      try {
+        const decoded = await this.tokenService.verifyRefreshToken(body.refreshToken);
+        if (decoded?.id && decoded?.jti) {
+          await this.redisService.setValue({
+            key: this.redisService.revokedKey({
+              userId: decoded.id,
+              jti: decoded.jti,
+            }),
+            value: '1',
+            ttl: 30 * 24 * 3600,
+          });
+        }
+      } catch {
+        // ignore if refresh token was already expired or invalid
+      }
+    }
+
+    return { message: 'Logged out successfully' };
+  }
 }
+
 

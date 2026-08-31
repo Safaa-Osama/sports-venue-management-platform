@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import {
   CreateIntentionParams,
@@ -11,6 +11,7 @@ import {
 
 @Injectable()
 export class PaymobService {
+  private readonly logger = new Logger(PaymobService.name);
   constructor() {}
 
   private get secretKey(): string {
@@ -21,8 +22,29 @@ export class PaymobService {
     return process.env.PAYMOB_PUBLIC_KEY || '';
   }
 
-  private get integrationId(): string {
-    return process.env.PAYMOB_INTEGRATION_ID || '';
+  private get cardIntegrationId(): string {
+    return (
+      process.env.PAYMOB_CARD_INTEGRATION_ID ||
+      process.env.PAYMOB_INTEGRATION_ID ||
+      ''
+    );
+  }
+
+  private get walletIntegrationId(): string {
+    return process.env.PAYMOB_WALLET_INTEGRATION_ID || '5822598';
+  }
+
+  private get integrationIds(): (number | string)[] {
+    const ids: (number | string)[] = [];
+    if (this.cardIntegrationId) {
+      const cardNum = Number(this.cardIntegrationId);
+      ids.push(isNaN(cardNum) ? this.cardIntegrationId : cardNum);
+    }
+    if (this.walletIntegrationId) {
+      const walletNum = Number(this.walletIntegrationId);
+      ids.push(isNaN(walletNum) ? this.walletIntegrationId : walletNum);
+    }
+    return ids;
   }
 
   private get hmacSecret(): string {
@@ -74,14 +96,11 @@ export class PaymobService {
     };
 
     const amountCents = Math.round(amount * 100);
-    const integrationIdNum = Number(this.integrationId);
 
     const methods: (number | string)[] =
       paymentMethods && paymentMethods.length > 0
         ? paymentMethods
-        : integrationIdNum
-          ? [integrationIdNum]
-          : [];
+        : this.integrationIds;
 
     const payload: PaymobIntentionRequest = {
       amount: amountCents,
@@ -177,9 +196,8 @@ export class PaymobService {
       }
       return null;
     } catch (err: any) {
-      console.warn(
-        `⚠️ [PaymobService] Failed to inquire transaction for reference ${referenceId}:`,
-        err?.message || err,
+      this.logger.warn(
+        `Failed to inquire transaction for reference ${referenceId}: ${err?.message || err}`,
       );
       return null;
     }
@@ -219,30 +237,33 @@ export class PaymobService {
   ): boolean {
     const secret = (this.hmacSecret || '').trim();
 
+    console.log(`\n================= [PAYMOB HMAC VERIFICATION PROCESS] =================`);
+    console.log(`  HMAC Secret Configured : ${secret ? 'YES (length: ' + secret.length + ')' : 'NO (empty)'}`);
+    console.log(`  Received HMAC Signature: ${receivedHmac || 'MISSING'}`);
+
     if (!secret) {
-      console.log(
-        'ℹ️ [Paymob Webhook] PAYMOB_HMAC_SECRET is not configured in server environment. Skipping HMAC signature check (Development mode).',
-      );
-      return true;
+      console.warn(`  Verification Status    : REJECTED (PAYMOB_HMAC_SECRET is not configured)`);
+      console.log(`=======================================================================\n`);
+      return false;
     }
 
     if (!receivedHmac) {
       console.warn(
-        '⚠️ [Paymob Webhook] Missing HMAC parameter on webhook request while PAYMOB_HMAC_SECRET is set.',
+        '  Verification Status    : REJECTED (Missing HMAC signature query parameter)',
       );
+      console.log(`=======================================================================\n`);
       return false;
     }
 
     const p = payload as any;
-
-    // Resolve the transaction object from either format:
-    // Intention API: payload.transaction
-    // Legacy API:    payload.obj
-    const txn = p?.transaction || p?.obj || p;
-    if (!txn) return false;
-
-    const formatName = p?.transaction ? 'Intention API' : p?.obj ? 'Legacy API' : 'Flat';
-    console.log(`ℹ️ [Paymob Webhook] Detected format: ${formatName}. Transaction keys: [${Object.keys(txn).slice(0, 10).join(', ')}...]`);
+    const obj = p?.obj || p?.transaction || p;
+    if (!obj) {
+      console.warn(
+        '  Verification Status    : REJECTED (Missing obj in webhook payload)',
+      );
+      console.log(`=======================================================================\n`);
+      return false;
+    }
 
     // Helper to format values matching Paymob Python serialization (lowercase booleans, empty strings for nulls)
     const formatVal = (v: any): string => {
@@ -251,60 +272,29 @@ export class PaymobService {
       return String(v);
     };
 
-    const extractField = (key: string, altKeys: string[] = []): any => {
-      if (txn[key] !== undefined && txn[key] !== null) return txn[key];
-      for (const alt of altKeys) {
-        if (txn[alt] !== undefined && txn[alt] !== null) return txn[alt];
-      }
-      return '';
-    };
-
     try {
-      const orderVal =
-        txn.order && typeof txn.order === 'object'
-          ? txn.order.id
-          : extractField('order', ['order_id', 'order.id', 'merchant_order_id']);
-
-      const panVal =
-        txn.source_data?.pan ??
-        extractField('source_data.pan', ['source_data_pan', 'pan']);
-
-      const subTypeVal =
-        txn.source_data?.sub_type ??
-        txn.source_data?.subtype ??
-        extractField('source_data.sub_type', [
-          'source_data_sub_type',
-          'source_data_subtype',
-          'sub_type',
-          'subtype',
-        ]);
-
-      const typeVal =
-        txn.source_data?.type ??
-        extractField('source_data.type', ['source_data_type', 'type']);
-
-      // ── Type 1: Transaction Webhook (20 Fields in Exact Documented Alphabetical Order) ──
+      // ── 20 Fields in Exact Documented Paymob Alphabetical Order ──
       const transactionFields = [
-        formatVal(extractField('amount_cents')),
-        formatVal(extractField('created_at')),
-        formatVal(extractField('currency')),
-        formatVal(extractField('error_occured', ['error_occurred'])),
-        formatVal(extractField('has_parent_transaction')),
-        formatVal(extractField('id')),
-        formatVal(extractField('integration_id')),
-        formatVal(extractField('is_3d_secure', ['is_3dsecure'])),
-        formatVal(extractField('is_auth')),
-        formatVal(extractField('is_capture')),
-        formatVal(extractField('is_refunded')),
-        formatVal(extractField('is_standalone_payment')),
-        formatVal(extractField('is_voided', ['is_void'])),
-        formatVal(orderVal),
-        formatVal(extractField('owner')),
-        formatVal(extractField('pending')),
-        formatVal(panVal),
-        formatVal(subTypeVal),
-        formatVal(typeVal),
-        formatVal(extractField('success')),
+        formatVal(obj.amount_cents),
+        formatVal(obj.created_at),
+        formatVal(obj.currency),
+        formatVal(obj.error_occured),
+        formatVal(obj.has_parent_transaction),
+        formatVal(obj.id),
+        formatVal(obj.integration_id),
+        formatVal(obj.is_3d_secure),
+        formatVal(obj.is_auth),
+        formatVal(obj.is_capture),
+        formatVal(obj.is_refunded),
+        formatVal(obj.is_standalone_payment),
+        formatVal(obj.is_voided),
+        formatVal(obj.order?.id),
+        formatVal(obj.owner),
+        formatVal(obj.pending),
+        formatVal(obj.source_data?.pan),
+        formatVal(obj.source_data?.sub_type),
+        formatVal(obj.source_data?.type),
+        formatVal(obj.success),
       ];
 
       const transactionConcat = transactionFields.join('');
@@ -314,50 +304,34 @@ export class PaymobService {
         .digest('hex')
         .toLowerCase();
 
-      // Logging removed to prevent spam
+      console.log(`  Payload Format         : TRANSACTION (obj)`);
+      console.log(`  Transaction ID         : ${obj.id ?? 'N/A'}`);
+      console.log(`  Order ID               : ${obj.order?.id ?? 'N/A'}`);
+      console.log(`  Merchant Order ID      : ${obj.order?.merchant_order_id ?? 'N/A'}`);
+      console.log(`  Amount (Cents)         : ${transactionFields[0]}`);
+      console.log(`  Success Status         : ${transactionFields[19]}`);
+      console.log(`  Concatenated String    : "${transactionConcat}"`);
+      console.log(`  Calculated SHA-512 HMAC: ${calculatedTransactionHmac}`);
+      console.log(`  Received HMAC Signature: ${receivedHmac.trim().toLowerCase()}`);
 
       if (this.safeCompareHmac(calculatedTransactionHmac, receivedHmac)) {
-        console.log('🔒 [Paymob Webhook] SHA-512 HMAC timing-safely verified (Transaction Type).');
+        console.log(`  Verification Result    : [SUCCESS] HMAC MATCH (timing-safe equal: true)`);
+        console.log(`=======================================================================\n`);
         return true;
       }
 
-      // ── Type 2: Card Token Webhook (8 Fields in Exact Documented Order) ──
-      if (txn.token || p?.type === 'TOKEN') {
-        const tokenFields = [
-          formatVal(extractField('card_subtype')),
-          formatVal(extractField('created_at')),
-          formatVal(extractField('email')),
-          formatVal(extractField('id')),
-          formatVal(extractField('masked_pan')),
-          formatVal(extractField('merchant_id')),
-          formatVal(extractField('order_id')),
-          formatVal(extractField('token')),
-        ];
-        const tokenConcat = tokenFields.join('');
-        const calculatedTokenHmac = crypto
-          .createHmac('sha512', secret)
-          .update(tokenConcat)
-          .digest('hex')
-          .toLowerCase();
-
-        if (this.safeCompareHmac(calculatedTokenHmac, receivedHmac)) {
-          console.log('🔒 [Paymob Webhook] SHA-512 HMAC timing-safely verified (Card Token Type).');
-          return true;
-        }
-      }
-
       console.warn(
-        `⚠️ [Paymob Webhook] HMAC signature mismatch. ` +
-          `(Note: Paymob Intention API webhooks sometimes fail standard legacy HMAC validation. ` +
-          `Proceeding with transaction ID ${txn.id} via fallback validation.)`,
+        `  Verification Result    : [FAILED] HMAC MISMATCH for transaction ID ${obj.id}.`,
       );
+      console.log(`=======================================================================\n`);
 
       return false;
     } catch (err: any) {
       console.error(
-        '❌ [Paymob Webhook] Error during HMAC verification calculation:',
+        '  Verification Result    : [ERROR] Error during HMAC verification calculation:',
         err?.message || err,
       );
+      console.log(`=======================================================================\n`);
       return false;
     }
   }

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
@@ -33,16 +33,13 @@ import { PushNotificationModule } from './modules/push-notification/push-notific
     // Mongo DB
     MongooseModule.forRoot(process.env.DB_URI_ATLAS!, {
       onConnectionCreate: (connection: Connection) => {
-        connection.on('connected', () => console.log('database connected'));
-        connection.on('open', () => console.log('database open'));
+        const mongooseLogger = new Logger('Mongoose');
         connection.on('disconnected', () =>
-          console.log('database disconnected'),
+          mongooseLogger.warn('Database disconnected'),
         );
-        connection.on('reconnected', () => console.log('database reconnected'));
-        connection.on('disconnecting', () =>
-          console.log('database disconnecting'),
+        connection.on('error', (err) =>
+          mongooseLogger.error('Database connection error', err?.message || err),
         );
-
         return connection;
       },
     }),

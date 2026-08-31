@@ -138,10 +138,15 @@ describe('PaymentService (Webhook Group & Deposit Resolution)', () => {
       );
 
       const payload = {
-        transaction: {
+        type: 'TRANSACTION',
+        obj: {
           id: 998877,
           success: true,
-          special_reference: 'TXN-ABC-123',
+          amount_cents: 30000,
+          order: {
+            id: 597965733,
+            merchant_order_id: 'TXN-ABC-123',
+          },
         },
       };
 
@@ -217,10 +222,15 @@ describe('PaymentService (Webhook Group & Deposit Resolution)', () => {
       );
 
       const payload = {
-        transaction: {
+        type: 'TRANSACTION',
+        obj: {
           id: 998878,
           success: true,
-          special_reference: 'TXN-DEP-456',
+          amount_cents: 10000,
+          order: {
+            id: 597965734,
+            merchant_order_id: 'TXN-DEP-456',
+          },
         },
       };
 
@@ -239,6 +249,83 @@ describe('PaymentService (Webhook Group & Deposit Resolution)', () => {
         update: expect.objectContaining({
           status: BookingStatusEnum.confirmed,
           paymentStatus: PaymentStatusEnum.partially_paid,
+        }),
+      });
+    });
+
+    it('should correctly calculate paidAmount and remainingAmount for split payments (Wallet + Card)', async () => {
+      const groupId = 'group-split-123';
+      const bookingId = new Types.ObjectId();
+      const userId = new Types.ObjectId();
+
+      const mockPayment: any = {
+        _id: new Types.ObjectId(),
+        groupId,
+        bookingId,
+        amount: 100, // Card portion
+        walletDeduction: 100, // Wallet portion
+        status: PaymentStatusEnum.unpaid,
+        userId,
+      };
+
+      mockPaymentRepo.findOne.mockImplementation(async ({ filter }: any) => {
+        if (filter?.paymobTransactionId) {
+          return null;
+        }
+        return mockPayment;
+      });
+
+      mockPaymentRepo.findOneAndUpdate.mockResolvedValue({
+        ...mockPayment,
+        status: PaymentStatusEnum.partially_paid,
+      });
+
+      const groupBookings: any[] = [
+        {
+          _id: bookingId,
+          groupId,
+          finalPrice: 250,
+          status: BookingStatusEnum.pending,
+          venueId: new Types.ObjectId(),
+        },
+      ];
+
+      mockBookingRepo.find.mockResolvedValue(groupBookings);
+      mockBookingRepo.findByIdAndUpdate.mockImplementation(
+        async ({ id, update }) => ({
+          _id: id,
+          ...update,
+        }),
+      );
+
+      const payload = {
+        type: 'TRANSACTION',
+        obj: {
+          id: 998879,
+          success: true,
+          amount_cents: 10000, // 100 EGP paid via Card
+          order: {
+            id: 597965735,
+            merchant_order_id: 'TXN-SPLIT-789',
+          },
+        },
+      };
+
+      const result = await service.handlePaymobWebhook(payload, 'valid-hmac');
+
+      expect(result.status).toBe(PaymentStatusEnum.partially_paid);
+      expect(mockWalletService.payForBooking).toHaveBeenCalledWith(
+        userId,
+        100,
+        bookingId.toString(),
+      );
+      expect(mockBookingRepo.findByIdAndUpdate).toHaveBeenCalledWith({
+        id: bookingId,
+        update: expect.objectContaining({
+          status: BookingStatusEnum.confirmed,
+          paymentStatus: PaymentStatusEnum.partially_paid,
+          paidAmount: 200, // 100 Card + 100 Wallet
+          remainingAmount: 50, // 250 - 200
         }),
       });
     });

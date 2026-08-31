@@ -55,6 +55,15 @@ export class TokenService {
     );
   }
 
+  async verifyRefreshToken(token: string): Promise<any> {
+    const secret = this.getRefreshSecret();
+    try {
+      return await this.verifyToken({ token, options: { secret } });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+  }
+
   async authenticateToken_fetchUser(token: string) {
     const secret = this.getAccessSecret();
     let decoded: any;
@@ -89,12 +98,6 @@ export class TokenService {
 
     if (!user) {
       throw new UnauthorizedException('User not found');
-    }
-
-    if (user.status === CustomerStatusEnum.suspended) {
-      throw new ForbiddenException(
-        'Your account has been suspended. Please contact support.',
-      );
     }
 
     const revoked = await this.redisService.getValue(

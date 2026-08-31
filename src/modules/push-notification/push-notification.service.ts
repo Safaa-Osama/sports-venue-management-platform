@@ -11,6 +11,10 @@ import {
 } from 'src/modules/user/entities/admin-user.entity';
 import { User, UserDocument } from 'src/modules/user/entities/user.entity';
 import {
+  GuestDevice,
+  GuestDeviceDocument,
+} from './entities/guest-device.entity';
+import {
   NotificationEventType,
   renderTemplate,
 } from './push-templates';
@@ -48,10 +52,39 @@ export class PushNotificationService {
     private readonly adminUserModel: Model<AdminUserDocument>,
     @InjectModel(User.name)
     private readonly userModel: Model<UserDocument>,
+    @InjectModel(GuestDevice.name)
+    private readonly guestDeviceModel: Model<GuestDeviceDocument>,
   ) {}
 
   /**
-   * Register or update a push token for a user
+   * Register an anonymous/guest device push token before login
+   */
+  async registerGuestPushToken(
+    token: string,
+    platform: string = 'unknown',
+    locale: string = 'ar',
+  ): Promise<boolean> {
+    if (!token) return false;
+    try {
+      await this.guestDeviceModel.findOneAndUpdate(
+        { token },
+        {
+          token,
+          platform,
+          locale: locale?.toLowerCase().startsWith('en') ? 'en' : 'ar',
+          lastSeenAt: new Date(),
+        },
+        { upsert: true, returnDocument: 'after' },
+      );
+      return true;
+    } catch (err: any) {
+      this.logger.warn(`Failed to register guest push token: ${err?.message || err}`);
+      return false;
+    }
+  }
+
+  /**
+   * Register or update a push token for an authenticated user
    */
   async registerPushToken(
     userId: string | Types.ObjectId,
@@ -62,6 +95,9 @@ export class PushNotificationService {
     if (!token || !userId) return false;
 
     const objectId = typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
+
+    // Prune from guest devices collection since token is now linked to an account
+    this.guestDeviceModel.deleteOne({ token }).catch(() => {});
 
     const updateOperations = {
       $pull: { pushTokens: { token } },
@@ -75,7 +111,7 @@ export class PushNotificationService {
           updatedAt: new Date(),
         },
       },
-      ...(locale ? { $set: { locale } } : {}),
+      ...(locale ? { $set: { locale: locale?.toLowerCase().startsWith('en') ? 'en' : 'ar' } } : {}),
     };
 
     // Try CustomerUser first
@@ -83,7 +119,6 @@ export class PushNotificationService {
     if (customer) {
       await this.customerUserModel.findByIdAndUpdate(objectId, updateOperations);
       await this.customerUserModel.findByIdAndUpdate(objectId, pushOperation);
-      this.logger.log(`Push token registered for customer: ${objectId}`);
       return true;
     }
 
@@ -92,7 +127,6 @@ export class PushNotificationService {
     if (admin) {
       await this.adminUserModel.findByIdAndUpdate(objectId, updateOperations);
       await this.adminUserModel.findByIdAndUpdate(objectId, pushOperation);
-      this.logger.log(`Push token registered for admin: ${objectId}`);
       return true;
     }
 
@@ -101,7 +135,6 @@ export class PushNotificationService {
     if (genericUser) {
       await this.userModel.findByIdAndUpdate(objectId, updateOperations);
       await this.userModel.findByIdAndUpdate(objectId, pushOperation);
-      this.logger.log(`Push token registered for user: ${objectId}`);
       return true;
     }
 
@@ -128,14 +161,14 @@ export class PushNotificationService {
       this.userModel.findByIdAndUpdate(objectId, {
         $pull: { pushTokens: { token } },
       }),
+      this.guestDeviceModel.deleteOne({ token }),
     ]);
 
-    this.logger.log(`Push token removed for user ${objectId}: ${token}`);
     return true;
   }
 
   /**
-   * Prune a dead token across all user collections (e.g. DeviceNotRegistered)
+   * Prune a dead token across all collections (e.g. DeviceNotRegistered)
    */
   async pruneInvalidToken(token: string): Promise<void> {
     if (!token) return;
@@ -153,6 +186,7 @@ export class PushNotificationService {
         { 'pushTokens.token': token },
         { $pull: { pushTokens: { token } } },
       ),
+      this.guestDeviceModel.deleteOne({ token }),
     ]);
   }
 
@@ -225,27 +259,58 @@ export class PushNotificationService {
   }
 
   /**
-   * Broadcast a notification to all active customers (e.g. promo added, pitch reopened)
+   * Broadcast a notification to all devices (active registered customers + guest devices)
+   * (e.g. promo added, discounts, pitch reopened)
    */
   async broadcastToAllCustomers(
     eventType: NotificationEventType,
     params: Record<string, string | number> = {},
     dataPayload: Record<string, any> = {},
   ): Promise<void> {
-    const customers = await this.customerUserModel.find(
-      { 'pushTokens.0': { $exists: true } },
-      { pushTokens: 1, locale: 1 },
-    );
+    const [customers, guestDevices] = await Promise.all([
+      this.customerUserModel.find(
+        { 'pushTokens.0': { $exists: true } },
+        { pushTokens: 1, locale: 1 },
+      ),
+      this.guestDeviceModel.find({}, { token: 1, locale: 1 }),
+    ]);
 
     const messages: ExpoPushMessage[] = [];
+    const seenTokens = new Set<string>();
 
+    // 1. Process customer push tokens
     for (const customer of customers) {
       const locale = (customer as any).locale || 'ar';
       const { title, body } = renderTemplate(eventType, locale, params);
 
       for (const pt of customer.pushTokens) {
+        if (pt.token && !seenTokens.has(pt.token)) {
+          seenTokens.add(pt.token);
+          messages.push({
+            to: pt.token,
+            title,
+            body,
+            sound: 'default',
+            channelId: 'default',
+            priority: 'default',
+            data: {
+              eventType,
+              ...dataPayload,
+            },
+          });
+        }
+      }
+    }
+
+    // 2. Process guest device push tokens
+    for (const guest of guestDevices) {
+      if (guest.token && !seenTokens.has(guest.token)) {
+        seenTokens.add(guest.token);
+        const locale = guest.locale || 'ar';
+        const { title, body } = renderTemplate(eventType, locale, params);
+
         messages.push({
-          to: pt.token,
+          to: guest.token,
           title,
           body,
           sound: 'default',

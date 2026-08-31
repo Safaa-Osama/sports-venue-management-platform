@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, Optional, } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { AdvertisementPositionEnum, AdvertisementStatusEnum, } from 'src/common/enums/advertisementEnum';
 import { AdvertisementRepo } from 'src/common/repositories/advertisement-repo';
@@ -15,6 +15,7 @@ import { PushNotificationService } from '../push-notification/push-notification.
 
 @Injectable()
 export class AdvertisementService {
+  private readonly logger = new Logger(AdvertisementService.name);
   private readonly CACHE_PREFIX = 'ad:dashboard:';
   private readonly CACHE_TTL_SECONDS = 300; // 5 minutes
 
@@ -70,7 +71,7 @@ export class AdvertisementService {
         this.bookingGateway.emitAdvertisementsUpdated(action, adId);
       }
     } catch (err) {
-      console.warn('[AdvertisementService] Failed to broadcast advertisements_updated event:', err);
+      this.logger.warn(`Failed to broadcast advertisements_updated event: ${err?.message || err}`);
     }
   }
 

@@ -20,13 +20,9 @@ export class BookingGateway
   @WebSocketServer()
   server: Server;
 
-  handleConnection(client: Socket) {
-    console.log(`Client connected to booking gateway: ${client.id}`);
-  }
+  handleConnection(_client: Socket) {}
 
-  handleDisconnect(client: Socket) {
-    console.log(`Client disconnected from booking gateway: ${client.id}`);
-  }
+  handleDisconnect(_client: Socket) {}
 
   @SubscribeMessage('join_venue')
   handleJoinVenue(
@@ -56,6 +52,7 @@ export class BookingGateway
     this.server.to(venueRoom).emit('slot_locked', {
       bookingId: booking._id?.toString(),
       venueId: venueIdStr,
+      userId: booking.userId?._id?.toString() || booking.userId?.toString(),
       date: booking.date,
       startTime: booking.startTime,
       endTime: booking.endTime,
@@ -95,6 +92,70 @@ export class BookingGateway
     }
   }
 
+  @SubscribeMessage('join_user')
+  handleJoinUser(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId: string },
+  ) {
+    if (data && data.userId) {
+      client.join(`user_${data.userId}`);
+      return { event: 'joined_user', userId: data.userId };
+    }
+  }
+
+  @SubscribeMessage('leave_user')
+  handleLeaveUser(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId: string },
+  ) {
+    if (data && data.userId) {
+      client.leave(`user_${data.userId}`);
+      return { event: 'left_user', userId: data.userId };
+    }
+  }
+
+  emitWalletUpdated(userId: string, data: { balance: number; reason?: string; bookingId?: string }) {
+    const userIdStr = userId?.toString();
+    const userRoom = `user_${userIdStr}`;
+    const payload = {
+      userId: userIdStr,
+      balance: data.balance,
+      reason: data.reason || 'Wallet updated',
+      bookingId: data.bookingId,
+      timestamp: new Date().toISOString(),
+    };
+    if (this.server) {
+      this.server.to(userRoom).emit('wallet_updated', payload);
+      this.server.emit(`user_wallet_${userIdStr}`, payload);
+      this.server.emit('wallet_updated', payload);
+    }
+  }
+
+  emitBookingCancelled(booking: any, refundAmount?: number) {
+    const venueIdStr = booking.venueId?.toString();
+    const userIdStr = booking.userId?._id?.toString() || booking.userId?.toString();
+    const venueRoom = `venue_${venueIdStr}`;
+    const userRoom = `user_${userIdStr}`;
+    const payload = {
+      bookingId: booking._id?.toString(),
+      _id: booking._id?.toString(),
+      venueId: venueIdStr,
+      userId: userIdStr,
+      date: booking.date,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      status: booking.status,
+      refundAmount,
+      timestamp: new Date().toISOString(),
+    };
+    if (this.server) {
+      this.server.to(venueRoom).emit('booking_cancelled', payload);
+      this.server.to(userRoom).emit('booking_cancelled', payload);
+      this.server.emit(`user_booking_cancelled_${userIdStr}`, payload);
+      this.server.emit('booking_cancelled', payload);
+    }
+  }
+
   emitOwnerNotification(ownerId: string, booking: any, eventType: string) {
     this.server.emit(`owner_${ownerId}`, {
       eventType,
@@ -109,6 +170,22 @@ export class BookingGateway
         adId,
         timestamp: new Date().toISOString(),
       });
+    }
+  }
+
+  emitUserStatusUpdated(userId: string, data: { status: string; statusReason?: string }) {
+    const userIdStr = userId?.toString();
+    const userRoom = `user_${userIdStr}`;
+    const payload = {
+      userId: userIdStr,
+      status: data.status,
+      statusReason: data.statusReason || '',
+      timestamp: new Date().toISOString(),
+    };
+    if (this.server) {
+      this.server.to(userRoom).emit('user_status_updated', payload);
+      this.server.emit(`user_status_${userIdStr}`, payload);
+      this.server.emit('user_status_updated', payload);
     }
   }
 }

@@ -21,5 +21,6 @@ export enum CustomerStatusEnum {
   active = 'active',
   hold = 'hold',
   suspended = 'suspended',
-  inactive = 'inactive'
+  inactive = 'inactive',
+  archived = 'archived',
 }

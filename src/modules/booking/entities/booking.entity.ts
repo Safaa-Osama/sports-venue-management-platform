@@ -91,6 +91,15 @@ export class Booking {
 
   @Prop({ type: Boolean, default: false })
   twoHourReminderSent?: boolean;
+
+  @Prop({ type: String })
+  cancellationReason?: string;
+
+  @Prop({ type: String })
+  cancelledBy?: string;
+
+  @Prop({ type: Date })
+  cancelledAt?: Date;
 }
 
 export const BookingSchema = SchemaFactory.createForClass(Booking);

@@ -325,6 +325,93 @@ describe('BookingService (R2 Multi-Slot & R3 Minimum Deposit)', () => {
         ConflictException,
       );
     });
+
+    it('should reject if any requested slot is held under pending status by another user', async () => {
+      mockVenueRepo.findById.mockResolvedValue({
+        _id: mockVenueId,
+        venueName: 'Arena Hub',
+        isActive: true,
+        startWorkingHours: 8,
+        endWorkingHours: 24,
+        defaultHourPrice: 100,
+      });
+
+      mockBookingRepo.find.mockResolvedValue([
+        {
+          _id: new Types.ObjectId(),
+          userId: new Types.ObjectId(), // Different user
+          startTime: 18,
+          endTime: 19,
+          status: BookingStatusEnum.pending,
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000), // unexpired
+        },
+      ] as any);
+
+      const dto: any = {
+        venueId: mockVenueId.toString(),
+        date: '2026-12-15',
+        slots: [{ startTime: 18, endTime: 19 }],
+        paymentMethod: PaymentMethodEnum.wallet,
+      };
+
+      await expect(service.createBooking(dto, mockUser)).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('should allow re-booking if the slot is held under pending status by the SAME user', async () => {
+      mockVenueRepo.findById.mockResolvedValue({
+        _id: mockVenueId,
+        venueName: 'Arena Hub',
+        isActive: true,
+        startWorkingHours: 8,
+        endWorkingHours: 24,
+        defaultHourPrice: 100,
+      });
+
+      const oldHoldId = new Types.ObjectId();
+      mockBookingRepo.find.mockResolvedValue([
+        {
+          _id: oldHoldId,
+          userId: mockUser._id, // SAME user
+          startTime: 18,
+          endTime: 19,
+          status: BookingStatusEnum.pending,
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000), // unexpired
+        },
+      ] as any);
+
+      mockBookingRepo.findByIdAndDelete.mockResolvedValue({ _id: oldHoldId } as any);
+      mockBookingRepo.create.mockResolvedValue({
+        _id: new Types.ObjectId(),
+        userId: mockUser._id,
+        venueId: mockVenueId,
+        groupId: 'test-group',
+        date: new Date('2026-12-15'),
+        startTime: 18,
+        endTime: 19,
+        totalPrice: 100,
+        paidAmount: 100,
+        remainingAmount: 0,
+        status: BookingStatusEnum.confirmed,
+        paymentStatus: PaymentStatusEnum.paid,
+        paymentMethod: PaymentMethodEnum.wallet,
+      } as any);
+
+      mockWalletService.getOrCreateWallet.mockResolvedValue({ balance: 500 });
+      mockWalletService.payForBooking.mockResolvedValue({});
+
+      const dto: any = {
+        venueId: mockVenueId.toString(),
+        date: '2026-12-15',
+        slots: [{ startTime: 18, endTime: 19 }],
+        paymentMethod: PaymentMethodEnum.wallet,
+      };
+
+      const result = await service.createBooking(dto, mockUser);
+      expect(result).toBeDefined();
+      expect(mockBookingRepo.findByIdAndDelete).toHaveBeenCalledWith(oldHoldId);
+    });
   });
 
   describe('createBooking (R3 Minimum Deposit Per Slot)', () => {

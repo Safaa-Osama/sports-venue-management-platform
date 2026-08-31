@@ -42,9 +42,9 @@ export class WalletService {
         },
         options: {
           upsert: true,
-          new: true,
+          returnDocument: 'after',
           setDefaultsOnInsert: true,
-          session
+          session,
         },
       });
 
@@ -136,7 +136,7 @@ export class WalletService {
     const updatedWallet = await this.walletRepo.findOneAndUpdate({
       filter: { _id: wallet._id },
       update: { $inc: { balance: amount } },
-      options: { session, new: true, returnDocument: 'after' },
+      options: { session, returnDocument: 'after' },
     });
 
     if (!updatedWallet) {
@@ -207,7 +207,7 @@ export class WalletService {
     const updatedWallet = await this.walletRepo.findOneAndUpdate({
       filter: { _id: wallet._id, balance: { $gte: amount } },
       update: { $inc: { balance: -amount } },
-      options: { session, new: true, returnDocument: 'after' },
+      options: { session, returnDocument: 'after' },
     });
 
     if (!updatedWallet) {
@@ -269,7 +269,7 @@ export class WalletService {
       dto.userId,
       dto.amount,
       TransactionTypeEnum.DEDUCTION,
-      dto.description,
+      dto.description || dto.reason || 'Administrative deduction',
       dto.referenceId,
       user._id,
     );
@@ -300,12 +300,13 @@ export class WalletService {
     bookingId: string,
     user?: UserDocument,
     session?: ClientSession,
+    customDescription?: string,
   ) {
     return this.deposit(
       {
         userId: userId.toString(),
         amount,
-        description: `Refund for booking cancellation #${bookingId}`,
+        description: customDescription || `Refund for booking cancellation #${bookingId}`,
         referenceId: bookingId,
       },
       TransactionTypeEnum.BOOKING_REFUND,
@@ -317,7 +318,14 @@ export class WalletService {
   async getTransactions(queryDto: GetTransactionsDto, user: UserDocument) {
     const search: any = {};
 
-    if (user.role !== RoleEnum.admin && user.role !== RoleEnum.superAdmin) {
+    const isStaff = [
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ].includes(user.role as any);
+
+    if (!isStaff) {
       const wallet = await this.getOrCreateWallet(user._id);
       search.walletId = wallet._id;
     } else if (queryDto.userId) {

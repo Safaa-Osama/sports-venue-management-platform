@@ -41,6 +41,14 @@ export class DepositWalletDto {
   description?: string;
 
   @ApiPropertyOptional({
+    description: 'Reason alias for deposit',
+    example: 'Cash deposit at reception',
+  })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @ApiPropertyOptional({
     description: 'External payment reference or bank transfer ID',
     example: 'TXN-BANK-998822',
   })
@@ -67,6 +75,14 @@ export class UserDeductWalletDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({
+    description: 'Reason alias for deduction',
+    example: 'Equipment rental purchase',
+  })
+  @IsOptional()
+  @IsString()
+  reason?: string;
 
   @ApiPropertyOptional({
     description: 'Reference transaction identifier',
@@ -96,13 +112,21 @@ export class AdminDeductWalletDto {
   @Min(1, { message: 'Deduction amount must be at least 1' })
   amount: number;
 
-  @ApiProperty({
-    description: 'Mandatory reason for admin manual deduction',
+  @ApiPropertyOptional({
+    description: 'Reason for admin manual deduction',
     example: 'Penalty adjustment for venue property damage',
   })
-  @IsNotEmpty({ message: 'Description is required for admin deductions' })
+  @IsOptional()
   @IsString()
-  description: string;
+  description?: string;
+
+  @ApiPropertyOptional({
+    description: 'Reason for admin manual deduction (alias for description)',
+    example: 'Penalty adjustment for venue property damage',
+  })
+  @IsOptional()
+  @IsString()
+  reason?: string;
 
   @ApiPropertyOptional({
     description: 'Internal audit or incident reference ID',

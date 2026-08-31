@@ -48,6 +48,6 @@ import bookingModel from './entities/booking.entity';
     AdminUserRepo,
     RedisService,
   ],
-  exports: [BookingGateway],
+  exports: [BookingGateway, BookingService],
 })
 export class BookingModule { }
