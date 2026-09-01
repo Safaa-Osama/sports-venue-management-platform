@@ -62,6 +62,19 @@ export class Advertisement {
   @Prop({ type: Number, default: 0 })
   clicks?: number;
 
+  @Prop({ type: String, trim: true, default: null })
+  advertiserName?: string;
+
+  @Prop({ type: Number, default: 0 })
+  cost?: number;
+
+  @Prop({
+    type: String,
+    enum: ['paid', 'pending', 'failed'],
+    default: 'paid',
+  })
+  paymentStatus?: 'paid' | 'pending' | 'failed';
+
   @Prop({ type: Types.ObjectId, ref: AdminUser.name, index: true })
   createdBy?: Types.ObjectId;
 }

@@ -4,6 +4,7 @@ export enum BookingStatusEnum {
   cancelled = 'cancelled',
   completed = 'completed',
   expired = 'expired',
+  no_show = 'no_show',
 }
 
 export enum PaymentStatusEnum {

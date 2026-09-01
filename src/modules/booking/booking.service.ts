@@ -172,25 +172,83 @@ export class BookingService implements OnModuleInit {
       .digest('hex');
   }
 
-  @Cron(CronExpression.EVERY_HOUR)
-  async cleanExpiredBookings() {
-    const now = new Date();
-    const expiredBookings = await this.bookingRepo.find({
-      filter: {
-        status: BookingStatusEnum.pending,
-        expiresAt: { $lte: now },
-      },
-    });
+  @Cron('*/5 * * * *')
+  async cleanExpiredAndNoShowBookings() {
+    try {
+      const now = new Date();
 
-    for (const booking of expiredBookings) {
-      await this.bookingRepo.findByIdAndUpdate({
-        id: booking._id,
-        update: {
-          status: BookingStatusEnum.expired,
+      // 1. Clean expired pending reservations
+      const expiredBookings = await this.bookingRepo.find({
+        filter: {
+          status: BookingStatusEnum.pending,
+          expiresAt: { $lte: now },
         },
       });
 
-      this.bookingGateway.emitSlotReleased(booking);
+      for (const booking of expiredBookings) {
+        await this.bookingRepo.findByIdAndUpdate({
+          id: booking._id,
+          update: {
+            status: BookingStatusEnum.expired,
+          },
+        });
+
+        this.bookingGateway.emitSlotReleased(booking);
+      }
+
+      // 2. Automatically mark un-attended confirmed/pending bookings whose slot end time has passed as No-Show
+      const overdueBookings = await this.bookingRepo.find({
+        filter: {
+          status: { $in: [BookingStatusEnum.confirmed, BookingStatusEnum.pending] },
+          date: { $lte: now },
+        },
+      });
+
+      for (const b of overdueBookings) {
+        const bDate = new Date(b.date);
+        const endHour = Number(b.endTime);
+        const slotEndTime = new Date(
+          bDate.getFullYear(),
+          bDate.getMonth(),
+          bDate.getDate(),
+          endHour,
+          0,
+          0,
+          0,
+        );
+
+        if (now >= slotEndTime) {
+          this.logger.log(
+            `Auto-marking booking #${b.bookingCode || b._id} as no_show (slot ended at ${slotEndTime.toISOString()})`,
+          );
+          const updated = await this.bookingRepo.findByIdAndUpdate({
+            id: b._id,
+            update: {
+              status: BookingStatusEnum.no_show,
+            },
+          });
+
+          if (b.userId) {
+            try {
+              await this.customerUserRepo.findByIdAndUpdate({
+                id: b.userId,
+                update: {
+                  $inc: { noShowCount: 1 },
+                },
+              });
+            } catch (userErr) {
+              this.logger.error(`Failed to increment noShowCount for user ${b.userId}:`, userErr);
+            }
+          }
+
+          if (updated) {
+            this.bookingGateway.emitSlotReleased(updated);
+            this.bookingGateway.emitBookingConfirmed(updated);
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.error('Error during cleanExpiredAndNoShowBookings cron:', err);
     }
   }
 
@@ -1741,6 +1799,12 @@ export class BookingService implements OnModuleInit {
       throw new NotFoundException('Booking not found');
     }
 
+    if (booking.status === BookingStatusEnum.completed) {
+      throw new BadRequestException(
+        'Completed reservations are finalized and cannot be modified or re-confirmed.',
+      );
+    }
+
     const wasPaid =
       booking.paymentStatus === PaymentStatusEnum.paid ||
       booking.paymentStatus === PaymentStatusEnum.partially_paid;
@@ -1761,10 +1825,48 @@ export class BookingService implements OnModuleInit {
 
     const bFinal = booking.finalPrice ?? booking.totalPrice ?? 0;
 
-    if (updateDto.paymentStatus === PaymentStatusEnum.paid) {
+    if (updateDto.paymentStatus === PaymentStatusEnum.paid || updateDto.collectCash) {
       updateData.paidAmount = bFinal;
       updateData.remainingAmount = 0;
+      updateData.paymentStatus = PaymentStatusEnum.paid;
       updateData.expiresAt = null;
+
+      // Settle outstanding balance as cash payment in DB for reports
+      const remainingDue =
+        typeof updateDto.cashAmount === 'number'
+          ? updateDto.cashAmount
+          : (booking.remainingAmount !== undefined && booking.remainingAmount !== null && booking.remainingAmount > 0)
+          ? booking.remainingAmount
+          : Math.max(0, bFinal - actualPaidAmount);
+
+      if (remainingDue > 0) {
+        const timestamp = Date.now().toString(36).toUpperCase();
+        const randomStr = randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase();
+        const cashTxId = `CSH-${timestamp}-${randomStr}`;
+        try {
+          await this.paymentRepo.create({
+            bookingId: booking._id,
+            groupId: booking.groupId,
+            userId: booking.userId,
+            amount: remainingDue,
+            paymentMethod: PaymentMethodEnum.cash,
+            transactionId: cashTxId,
+            status: PaymentStatusEnum.paid,
+            paidAt: new Date(),
+          });
+          this.logger.log(
+            `Recorded cash settlement payment ${cashTxId} of ${remainingDue} EGP for booking ${booking._id}`,
+          );
+          if (!booking.paidAmount || booking.paidAmount === 0) {
+            updateData.paymentMethod = PaymentMethodEnum.cash;
+          }
+        } catch (paymentErr) {
+          this.logger.error(
+            `Failed to record cash payment for booking ${booking._id}:`,
+            paymentErr,
+          );
+        }
+      }
     } else if (updateDto.paymentStatus === PaymentStatusEnum.partially_paid) {
       const pAmount =
         typeof updateDto.paidAmount === 'number'
@@ -1826,7 +1928,8 @@ export class BookingService implements OnModuleInit {
 
     if (
       updateDto.status === BookingStatusEnum.cancelled ||
-      updateDto.status === BookingStatusEnum.expired
+      updateDto.status === BookingStatusEnum.expired ||
+      updateDto.status === BookingStatusEnum.no_show
     ) {
       this.bookingGateway.emitSlotReleased(updatedBooking);
       if (updateDto.status === BookingStatusEnum.cancelled) {
@@ -1840,9 +1943,14 @@ export class BookingService implements OnModuleInit {
         }
         this.notifyBookingCancelled(updatedBooking).catch(() => {});
       }
-    } else if (updateDto.status === BookingStatusEnum.confirmed) {
+    } else if (
+      updateDto.status === BookingStatusEnum.confirmed ||
+      updateDto.status === BookingStatusEnum.completed
+    ) {
       this.bookingGateway.emitBookingConfirmed(updatedBooking);
-      this.notifyBookingConfirmed(updatedBooking).catch(() => {});
+      if (updateDto.status === BookingStatusEnum.confirmed) {
+        this.notifyBookingConfirmed(updatedBooking).catch(() => {});
+      }
     }
 
     return updatedBooking;

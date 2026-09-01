@@ -19,6 +19,7 @@ import { AmenitiesModule } from './modules/amenities/amenities.module';
 import { AdvertisementModule } from './modules/advertisement/advertisement.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { PushNotificationModule } from './modules/push-notification/push-notification.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { PushNotificationModule } from './modules/push-notification/push-notific
     RedisModule,
     AdvertisementModule,
     ContactModule,
+    ReportsModule,
   ],
 
   exports: [],

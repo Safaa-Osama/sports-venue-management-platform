@@ -80,6 +80,9 @@ export class CustomerUser {
 
   @Prop({ type: String, enum: ['ar', 'en'], default: 'ar' })
   locale: string;
+
+  @Prop({ type: Number, default: 0 })
+  noShowCount?: number;
 }
 
 export const CustomerUserSchema = SchemaFactory.createForClass(CustomerUser);

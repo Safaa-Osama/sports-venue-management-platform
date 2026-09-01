@@ -66,9 +66,22 @@ export class CreateAdvertisementDto {
   @Type(() => Number)
   @IsOptional()
   priority?: number;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  advertiserName?: string;
+
+  @Type(() => Number)
+  @IsOptional()
+  cost?: number;
+
+  @IsIn(['paid', 'pending', 'failed'])
+  @IsOptional()
+  paymentStatus?: 'paid' | 'pending' | 'failed';
 }
 
-@AtLeastOne(["title", "description", "linkUrl", "position", "status", "startDate", "endDate", "displayDuration", "durationMinutes", "priority"])
+@AtLeastOne(["title", "description", "linkUrl", "position", "status", "startDate", "endDate", "displayDuration", "durationMinutes", "priority", "advertiserName", "cost", "paymentStatus"])
 export class UpdateAdvertisementDto extends PartialType(
   CreateAdvertisementDto,
 ) {}

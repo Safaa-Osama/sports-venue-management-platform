@@ -193,6 +193,14 @@ abstract class BaseRepo<TDocument> {
   async countDocuments(filter?: QueryFilter<TDocument>): Promise<number> {
     return this.Model.countDocuments(filter ?? {});
   }
+
+  public async aggregate<R = any>(pipeline: any[]): Promise<R[]> {
+    return this.Model.aggregate(pipeline).exec();
+  }
+
+  public getModel(): Model<TDocument> {
+    return this.Model;
+  }
 }
 
 export default BaseRepo;

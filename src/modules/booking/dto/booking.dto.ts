@@ -318,4 +318,18 @@ export class UpdateBookingStatusDto {
   })
   @IsOptional()
   paidAmount?: number;
+
+  @ApiPropertyOptional({
+    description: 'Flag to indicate collecting remaining balance as cash at gate/reception',
+    example: true,
+  })
+  @IsOptional()
+  collectCash?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Explicit cash amount collected (defaults to remainingAmount if not specified)',
+    example: 150,
+  })
+  @IsOptional()
+  cashAmount?: number;
 }
