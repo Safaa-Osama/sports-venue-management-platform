@@ -1,8 +1,9 @@
-import { Body, Controller, Delete, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -22,6 +23,48 @@ import {
 @Controller('coupon')
 export class CouponController {
   constructor(private readonly couponService: CouponService) {}
+
+  @Get()
+  @ApiOperation({
+    summary: 'Get All Coupons (Admin / Owner / Manager)',
+    description: 'Retrieves all promotional discount coupons with optional search and status filtering.',
+  })
+  @ApiQuery({ name: 'search', required: false, description: 'Search by coupon code' })
+  @ApiQuery({ name: 'status', required: false, description: 'Filter by active, expired, or inactive' })
+  @ApiResponse({ status: 200, description: 'List of coupons retrieved' })
+  @auth({
+    roles: [
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ],
+  })
+  async getAllCoupons(
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.couponService.getAllCoupons({ search, status });
+  }
+
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Get Coupon by ID (Admin / Owner / Manager)',
+    description: 'Retrieves a single coupon by ID.',
+  })
+  @ApiParam({ name: 'id', description: 'Coupon ID', example: '64e8b0a1f2b4c10012345695' })
+  @ApiResponse({ status: 200, description: 'Coupon details retrieved' })
+  @auth({
+    roles: [
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ],
+  })
+  async getCouponById(@Param('id') id: string) {
+    return this.couponService.getCouponById(id);
+  }
 
   @Post()
   @ApiOperation({

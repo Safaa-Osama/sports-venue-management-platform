@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, UploadedFile, UseInterceptors, } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseInterceptors, } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiParam, ApiResponse, ApiTags, } from '@nestjs/swagger';
 import { auth } from 'src/common/decorator/auth.decorator';
@@ -6,12 +6,24 @@ import { User } from 'src/common/decorator/user.decorator';
 import { RoleEnum } from 'src/common/enums/userEnum';
 import { UpdateAdminUserDto, UpdateCustomerUserDto, } from './dto/update-user.dto';
 import { UserService } from './user.service';
+import { RegisterPushTokenDto, RemovePushTokenDto } from '../push-notification/dto/push-token.dto';
 
 
 @ApiTags('Users')
 @Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) { }
+
+  @Post('customers')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Create Customer User (Admin / Owner)',
+    description: 'Creates a new customer user with default wallet balance.',
+  })
+  @auth({ roles: [RoleEnum.admin, RoleEnum.superAdmin, RoleEnum.owner] })
+  async createCustomer(@Body() body: { userName: string; phone: string }) {
+    return this.userService.createCustomer(body);
+  }
 
   @Get('customers')
   @ApiOperation({
@@ -36,33 +48,39 @@ export class UserController {
   @ApiResponse({
     status: 200,
     description: 'Customer profile retrieved successfully',
-    schema: {
-      example: {
-        success: true,
-        statusCode: 200,
-        message: 'done',
-        data: {
-          _id: '64e8b0a1f2b4c10012345678',
-          userName: 'John Doe',
-          phone: '+201012345678',
-          email: 'johndoe@example.com',
-          avatar: 'https://s3.amazonaws.com/.../avatar.jpg',
-          position: 'Midfielder',
-          walletBalance: 250,
-          status: 'active',
-          provider: 'system',
-          emailConfirmed: true,
-          createdAt: '2026-08-17T12:00:00.000Z',
-          updatedAt: '2026-08-17T12:00:00.000Z',
-        },
-      },
-    },
   })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid or missing token' })
   @ApiResponse({ status: 404, description: 'Customer not found' })
   @auth({ roles: [RoleEnum.customer, RoleEnum.user] })
-  getCustomerProfile(@User() user: any) {
+  getCustomerProfile(@User() user: any): Promise<any> {
     return this.userService.getCustomerProfile(user);
+  }
+
+  @Patch('customer/profile')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Update Authenticated Customer Profile',
+    description:
+      'Updates full name, phone number, playing position, and avatar for the currently authenticated customer.',
+  })
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiResponse({ status: 200, description: 'Customer profile updated successfully' })
+  @auth({ roles: [RoleEnum.customer, RoleEnum.user] })
+  @UseInterceptors(FileInterceptor('avatar'))
+  async updateMyProfile(
+    @User() user: any,
+    @Body() body: UpdateCustomerUserDto,
+    @UploadedFile() avatar?: Express.Multer.File,
+  ) {
+    const updatedCustomer = await this.userService.updateCustomerUser(
+      user._id.toString(),
+      body,
+      avatar,
+    );
+    return {
+      message: 'Profile updated successfully',
+      data: updatedCustomer,
+    };
   }
 
   @Get('customers/:id')
@@ -92,7 +110,7 @@ export class UserController {
       RoleEnum.customer,
     ],
   })
-  getCustomerById(@Param('id') id: string) {
+  getCustomerById(@Param('id') id: string): Promise<any> {
     return this.userService.getCustomerById(id);
   }
 
@@ -220,5 +238,63 @@ export class UserController {
       message: 'Admin user updated successfully',
       data: updatedAdmin,
     };
+  }
+
+  @Post('push-token')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Register or Update Expo Push Token',
+    description: 'Registers or updates the Expo push token and device platform for the authenticated user.',
+  })
+  @ApiResponse({ status: 200, description: 'Push token registered successfully' })
+  @auth({
+    roles: [
+      RoleEnum.customer,
+      RoleEnum.user,
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ],
+  })
+  registerPushToken(
+    @User() user: any,
+    @Body() body: RegisterPushTokenDto,
+  ) {
+    return this.userService.registerPushToken(user, body);
+  }
+
+  @Post('push-token/guest')
+  @ApiOperation({
+    summary: 'Register Guest/Anonymous Device Push Token',
+    description: 'Registers or updates an Expo push token for an unauthenticated device to receive global promo broadcasts.',
+  })
+  @ApiResponse({ status: 200, description: 'Guest push token registered successfully' })
+  registerGuestPushToken(@Body() body: RegisterPushTokenDto) {
+    return this.userService.registerGuestPushToken(body);
+  }
+
+  @Delete('push-token')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Unregister Expo Push Token',
+    description: 'Removes the specified push token for the authenticated user (e.g. on logout).',
+  })
+  @ApiResponse({ status: 200, description: 'Push token removed successfully' })
+  @auth({
+    roles: [
+      RoleEnum.customer,
+      RoleEnum.user,
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ],
+  })
+  removePushToken(
+    @User() user: any,
+    @Body() body: RemovePushTokenDto,
+  ) {
+    return this.userService.removePushToken(user, body);
   }
 }

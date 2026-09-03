@@ -17,8 +17,11 @@ export type PaymentDocument = HydratedDocument<Payment>;
   toObject: { virtuals: true },
 })
 export class Payment {
-  @Prop({ required: true, type: Types.ObjectId, ref: Booking.name })
-  bookingId: Types.ObjectId;
+  @Prop({ required: false, type: Types.ObjectId, ref: Booking.name })
+  bookingId?: Types.ObjectId;
+
+  @Prop({ type: String, index: true })
+  groupId?: string;
 
   @Prop({ required: true, type: Types.ObjectId, ref: CustomerUser.name })
   userId: Types.ObjectId;
@@ -32,6 +35,9 @@ export class Payment {
   @Prop({ type: String, required: true, unique: true })
   transactionId: string;
 
+  @Prop({ type: String, required: false, index: true })
+  paymobTransactionId?: string;
+
   @Prop({
     type: String,
     enum: PaymentStatusEnum,
@@ -44,6 +50,9 @@ export class Payment {
 
   @Prop({ type: Number, default: 0 })
   refundedAmount?: number;
+
+  @Prop({ type: Number, default: 0 })
+  walletDeduction?: number;
 
   @Prop({ type: String, required: false })
   refundReason?: string;

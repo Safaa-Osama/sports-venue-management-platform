@@ -15,6 +15,33 @@ import { WalletService } from './wallet.service';
 export class WalletController {
   constructor(private readonly walletService: WalletService) { }
 
+  @Get('transactions')
+  @ApiOperation({
+    summary: 'Get Wallet Transactions Ledger',
+    description:
+      'Retrieves chronological list of wallet debits, credits, refunds, and bookings with pagination and filters.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Transactions ledger retrieved successfully',
+  })
+  @auth({
+    roles: [
+      RoleEnum.customer,
+      RoleEnum.user,
+      RoleEnum.owner,
+      RoleEnum.manager,
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+    ],
+  })
+  async getTransactions(
+    @Query() query: GetTransactionsDto,
+    @User() user: UserDocument,
+  ) {
+    return this.walletService.getTransactions(query, user);
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Get Wallet Balance by User ID',
@@ -50,33 +77,6 @@ export class WalletController {
   })
   async getMyWallet(@Param('id') userId: string) {
     return this.walletService.getWalletByUserId(userId);
-  }
-
-  @Get('transactions')
-  @ApiOperation({
-    summary: 'Get Wallet Transactions Ledger',
-    description:
-      'Retrieves chronological list of wallet debits, credits, refunds, and bookings with pagination and filters.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Transactions ledger retrieved successfully',
-  })
-  @auth({
-    roles: [
-      RoleEnum.customer,
-      RoleEnum.user,
-      RoleEnum.owner,
-      RoleEnum.manager,
-      RoleEnum.admin,
-      RoleEnum.superAdmin,
-    ],
-  })
-  async getTransactions(
-    @Query() query: GetTransactionsDto,
-    @User() user: UserDocument,
-  ) {
-    return this.walletService.getTransactions(query, user);
   }
 
   @Post('create')

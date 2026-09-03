@@ -21,7 +21,10 @@ import {
   CustomerVerifyOtpDto,
   DashboardLoginDto,
   GoogleLoginDto,
+  LogoutDto,
+  RefreshTokenDto,
 } from './dto/auth.dto';
+
 import { FileInterceptor } from '@nestjs/platform-express';
 import { multer_cloud } from 'src/common/interceptor/multer';
 import { MulterEnum, StoreEnum } from 'src/common/enums/multerEnum';
@@ -222,4 +225,59 @@ export class AuthController {
   createAdminUser(@Body() body: CreateAdminDto): Promise<any> {
     return this.authService.createAdminUser(body);
   }
-}
+
+  @Post('refresh-token')
+  @ApiOperation({
+    summary: 'Refresh Access Token using Refresh Token',
+    description:
+      'Exchanges a valid Refresh Token for a new pair of Access Token and Refresh Token (Refresh Token Rotation with grace window).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Tokens refreshed successfully',
+    schema: {
+      example: {
+        success: true,
+        statusCode: 200,
+        message: 'done',
+        data: {
+          accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+          refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+          user: {
+            _id: '64e8b0a1f2b4c10012345678',
+            userName: 'John Doe',
+            email: 'user@example.com',
+            role: 'customer',
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Invalid, expired, or revoked refresh token' })
+  refreshToken(@Body() body: RefreshTokenDto) {
+    return this.authService.refreshToken(body);
+  }
+
+  @Post('logout')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'User / Admin Logout',
+    description: 'Revokes the current access token and optional refresh token in Redis cache.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Logged out successfully',
+    schema: {
+      example: {
+        success: true,
+        statusCode: 200,
+        message: 'done',
+        data: { message: 'Logged out successfully' },
+      },
+    },
+  })
+  @auth()
+  logout(@User() user: any, @Body() body?: LogoutDto) {
+    return this.authService.logout(user, body);
+  }
+}

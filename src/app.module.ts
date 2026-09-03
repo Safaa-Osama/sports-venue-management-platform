@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
@@ -18,6 +18,8 @@ import { RedisModule } from './common/services/redis/redisModule';
 import { AmenitiesModule } from './modules/amenities/amenities.module';
 import { AdvertisementModule } from './modules/advertisement/advertisement.module';
 import { ContactModule } from './modules/contact/contact.module';
+import { PushNotificationModule } from './modules/push-notification/push-notification.module';
+import { ReportsModule } from './modules/reports/reports.module';
 
 @Module({
   imports: [
@@ -32,20 +34,18 @@ import { ContactModule } from './modules/contact/contact.module';
     // Mongo DB
     MongooseModule.forRoot(process.env.DB_URI_ATLAS!, {
       onConnectionCreate: (connection: Connection) => {
-        connection.on('connected', () => console.log('database connected'));
-        connection.on('open', () => console.log('database open'));
+        const mongooseLogger = new Logger('Mongoose');
         connection.on('disconnected', () =>
-          console.log('database disconnected'),
+          mongooseLogger.warn('Database disconnected'),
         );
-        connection.on('reconnected', () => console.log('database reconnected'));
-        connection.on('disconnecting', () =>
-          console.log('database disconnecting'),
+        connection.on('error', (err) =>
+          mongooseLogger.error('Database connection error', err?.message || err),
         );
-
         return connection;
       },
     }),
     JwtModule.register({ global: true }),
+    PushNotificationModule,
     VenueModule,
     AuthModule,
     UserModule,
@@ -57,6 +57,7 @@ import { ContactModule } from './modules/contact/contact.module';
     RedisModule,
     AdvertisementModule,
     ContactModule,
+    ReportsModule,
   ],
 
   exports: [],

@@ -14,6 +14,7 @@ import {
 import { S3Service } from 'src/common/services/s3Service/s3.service';
 import { VenueAmenities } from './entities/venue.entity';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
+import { PushNotificationService } from '../push-notification/push-notification.service';
 
 const ALLOWED_AMENITIES = [
   'Parking',
@@ -35,6 +36,7 @@ export class VenueService {
   constructor(
     private readonly venueRepo: VenueRepo,
     private readonly s3service: S3Service,
+    private readonly pushService: PushNotificationService,
   ) { }
 
   async getAllVenues(query?: GetVenuesQueryDto) {
@@ -56,8 +58,19 @@ export class VenueService {
         address: 1,
         sportsType: 1,
         amenities: 1,
+        startWorkingHours: 1,
+        endWorkingHours: 1,
+        WorkingHours: 1,
         defaultHourPrice: 1,
+        customHourPrices: 1,
+        customDatePrices: 1,
+        minimumDepositAmount: 1,
+        locationAlt: 1,
+        locationLang: 1,
+        isActive: 1,
         images: 1,
+        createdAt: 1,
+        updatedAt: 1,
       },
     });
 
@@ -119,6 +132,10 @@ export class VenueService {
       endWorkingHours,
       defaultHourPrice,
       customHourPrices,
+      customDatePrices,
+      minimumDepositAmount,
+      existingImages,
+      keepImages,
       isActive,
     } = body;
 
@@ -129,23 +146,13 @@ export class VenueService {
       throw new BadRequestException('Venue name already exists');
     }
 
-    const venueAmenities: Partial<Record<keyof VenueAmenities, boolean>> = {};
+    const venueAmenities = this.parseAndValidateAmenities(amenities);
 
-    if (amenities?.length) {
-      for (const amenity of amenities) {
-        const trimmed = amenity?.trim() || '';
-        const matchedAmenity = ALLOWED_AMENITIES.find(
-          (allowed) => allowed.toLowerCase() === trimmed.toLowerCase(),
-        );
-
-        if (!matchedAmenity) {
-          throw new BadRequestException(
-            `Invalid amenity: ${amenity}. Allowed amenities are: ${ALLOWED_AMENITIES.join(', ')}`,
-          );
-        }
-
-        venueAmenities[matchedAmenity as keyof VenueAmenities] = true;
-      }
+    const initialImages: string[] = [];
+    if (existingImages && Array.isArray(existingImages)) {
+      initialImages.push(...existingImages);
+    } else if (keepImages && Array.isArray(keepImages)) {
+      initialImages.push(...keepImages);
     }
 
     let uploadedImages: string[] = [];
@@ -157,19 +164,23 @@ export class VenueService {
       });
     }
 
+    const allImages = [...initialImages, ...uploadedImages];
+
     const venue = await this.venueRepo.create({
       venueName,
       sportsType,
       address,
       locationAlt,
       locationLang,
-      images: uploadedImages,
+      images: allImages,
       amenities: venueAmenities as VenueAmenities,
       startWorkingHours,
       endWorkingHours,
       WorkingHours: endWorkingHours - startWorkingHours,
       defaultHourPrice,
       customHourPrices,
+      customDatePrices,
+      minimumDepositAmount: minimumDepositAmount || 0,
       isActive: isActive !== undefined ? isActive : true,
       createdBy: user._id,
       isDeleted: false,
@@ -218,6 +229,8 @@ export class VenueService {
       endWorkingHours,
       defaultHourPrice,
       customHourPrices,
+      customDatePrices,
+      minimumDepositAmount,
       isActive,
       existingImages,
       keepImages,
@@ -249,6 +262,10 @@ export class VenueService {
       updateData.defaultHourPrice = defaultHourPrice;
     if (customHourPrices !== undefined)
       updateData.customHourPrices = customHourPrices;
+    if (customDatePrices !== undefined)
+      updateData.customDatePrices = customDatePrices;
+    if (minimumDepositAmount !== undefined)
+      updateData.minimumDepositAmount = minimumDepositAmount;
     if (isActive !== undefined) updateData.isActive = isActive;
 
     const newStart =
@@ -267,24 +284,7 @@ export class VenueService {
     }
 
     if (amenities !== undefined) {
-      const venueAmenities: Partial<Record<keyof VenueAmenities, boolean>> = {};
-      if (amenities.length > 0) {
-        for (const amenity of amenities) {
-          const trimmed = amenity?.trim() || '';
-          const matchedAmenity = ALLOWED_AMENITIES.find(
-            (allowed) => allowed.toLowerCase() === trimmed.toLowerCase(),
-          );
-
-          if (!matchedAmenity) {
-            throw new BadRequestException(
-              `Invalid amenity: ${amenity}. Allowed amenities are: ${ALLOWED_AMENITIES.join(', ')}`,
-            );
-          }
-
-          venueAmenities[matchedAmenity as keyof VenueAmenities] = true;
-        }
-      }
-      updateData.amenities = venueAmenities;
+      updateData.amenities = this.parseAndValidateAmenities(amenities);
     }
 
     // Process Image Removal & Retention
@@ -343,6 +343,15 @@ export class VenueService {
       id,
       update: updateData,
     });
+
+    if (venue.isActive === false && updateData.isActive === true) {
+      this.pushService.broadcastToAllCustomers('PITCH_REOPENED', {
+        venueName: venue.venueName,
+      }, {
+        route: `/pitch/${id}`,
+        venueId: id,
+      }).catch(() => {});
+    }
 
     const updatedVenueObj = updatedVenue?.toObject? updatedVenue.toObject(): updatedVenue;
     return updatedVenueObj
@@ -445,5 +454,92 @@ export class VenueService {
     });
 
     return { message: 'Venue deleted successfully' };
+  }
+
+  private parseAndValidateAmenities(
+    amenitiesInput: any,
+  ): Partial<Record<keyof VenueAmenities, boolean>> {
+    const venueAmenities: Partial<Record<keyof VenueAmenities, boolean>> = {};
+    if (!amenitiesInput) return venueAmenities;
+
+    const itemsToProcess: string[] = [];
+
+    if (Array.isArray(amenitiesInput)) {
+      for (const item of amenitiesInput) {
+        if (typeof item === 'string' && (item.startsWith('{') || item.startsWith('['))) {
+          try {
+            const parsed = JSON.parse(item);
+            if (Array.isArray(parsed)) {
+              itemsToProcess.push(...parsed.map((x) => String(x)));
+            } else if (typeof parsed === 'object' && parsed !== null) {
+              itemsToProcess.push(
+                ...Object.entries(parsed)
+                  .filter(([_, v]) => Boolean(v))
+                  .map(([k]) => k),
+              );
+            } else {
+              itemsToProcess.push(String(parsed));
+            }
+          } catch {
+            itemsToProcess.push(item);
+          }
+        } else if (typeof item === 'object' && item !== null) {
+          itemsToProcess.push(
+            ...Object.entries(item)
+              .filter(([_, v]) => Boolean(v))
+              .map(([k]) => k),
+          );
+        } else if (item) {
+          itemsToProcess.push(String(item));
+        }
+      }
+    } else if (typeof amenitiesInput === 'string') {
+      if (amenitiesInput.startsWith('{') || amenitiesInput.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(amenitiesInput);
+          if (Array.isArray(parsed)) {
+            itemsToProcess.push(...parsed.map((x) => String(x)));
+          } else if (typeof parsed === 'object' && parsed !== null) {
+            itemsToProcess.push(
+              ...Object.entries(parsed)
+                .filter(([_, v]) => Boolean(v))
+                .map(([k]) => k),
+            );
+          }
+        } catch {
+          itemsToProcess.push(amenitiesInput);
+        }
+      } else {
+        itemsToProcess.push(amenitiesInput);
+      }
+    } else if (typeof amenitiesInput === 'object' && amenitiesInput !== null) {
+      itemsToProcess.push(
+        ...Object.entries(amenitiesInput)
+          .filter(([_, v]) => Boolean(v))
+          .map(([k]) => k),
+      );
+    }
+
+    for (const amenity of itemsToProcess) {
+      const trimmed = amenity?.trim() || '';
+      if (!trimmed) continue;
+      const matchedAmenity = ALLOWED_AMENITIES.find(
+        (allowed) =>
+          allowed.toLowerCase() === trimmed.toLowerCase() ||
+          allowed.toLowerCase() + 's' === trimmed.toLowerCase() ||
+          (allowed.endsWith('s') &&
+            allowed.slice(0, -1).toLowerCase() === trimmed.toLowerCase()),
+      );
+
+      if (!matchedAmenity) {
+        throw new BadRequestException(
+          `Invalid amenity: ${amenity}. Allowed amenities are: ${ALLOWED_AMENITIES.join(', ')}`,
+        );
+      }
+
+      venueAmenities[matchedAmenity as keyof VenueAmenities] = true;
+    }
+
+    return venueAmenities;
   }
 }

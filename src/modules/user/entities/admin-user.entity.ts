@@ -23,6 +23,21 @@ export class AdminUser {
 
   @Prop({ type: String, enum: RoleEnum, default: RoleEnum.admin })
   role: RoleEnum;
+
+  @Prop({
+    type: [
+      {
+        token: { type: String, required: true },
+        platform: { type: String, default: 'unknown' },
+        updatedAt: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
+  })
+  pushTokens: { token: string; platform: string; updatedAt?: Date }[];
+
+  @Prop({ type: String, enum: ['ar', 'en'], default: 'ar' })
+  locale: string;
 }
 
 export const AdminUserSchema = SchemaFactory.createForClass(AdminUser);

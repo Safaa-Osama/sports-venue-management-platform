@@ -16,8 +16,7 @@ export const sendMail = async (mailOptions: Mail.Options): Promise<boolean> => {
     ...mailOptions,
   });
 
-  console.log('Message sent: %s', info.messageId);
-  return info.accepted.length > 0 ? true : false;
+  return info.accepted.length > 0;
 };
 
 export const generateOtp = () => {

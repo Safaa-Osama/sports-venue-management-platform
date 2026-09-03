@@ -147,3 +147,24 @@ export class GoogleLoginDto {
   @IsOptional()
   provider?: ProviderEnum.google;
 }
+
+export class RefreshTokenDto {
+  @ApiProperty({
+    description: 'JWT Refresh Token issued upon previous authentication or token refresh',
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+  })
+  @IsString()
+  @IsNotEmpty()
+  refreshToken: string;
+}
+
+export class LogoutDto {
+  @ApiPropertyOptional({
+    description: 'Optional refresh token to also revoke upon logout',
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+  })
+  @IsString()
+  @IsOptional()
+  refreshToken?: string;
+}
+

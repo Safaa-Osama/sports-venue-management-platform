@@ -12,6 +12,7 @@ import adminUserModel from '../user/entities/admin-user.entity';
 import customerUserModel from '../user/entities/customer-user.entity';
 import userModel from '../user/entities/user.entity';
 import { BookingModule } from '../booking/booking.module';
+import { PushNotificationModule } from '../push-notification/push-notification.module';
 import { AdvertisementController } from './advertisement.controller';
 import { AdvertisementService } from './advertisement.service';
 import advertisementModel from './entities/advertisement.entity';
@@ -24,6 +25,7 @@ import advertisementModel from './entities/advertisement.entity';
     customerUserModel,
     userModel,
     BookingModule,
+    PushNotificationModule,
   ],
   controllers: [AdvertisementController],
   providers: [AdvertisementService,AdvertisementRepo,AdminUserRepo,CustomerUserRepo,UserRepo,TokenService,JwtService,RedisService,S3Service,],

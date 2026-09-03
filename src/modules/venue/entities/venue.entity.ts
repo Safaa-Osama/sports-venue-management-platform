@@ -91,6 +91,28 @@ export class Venue {
   @Prop({ type: [{ hour: Number, pricePerHour: Number }] })
   customHourPrices?: { hour: number; pricePerHour: number }[];
 
+  @Prop({
+    type: [
+      {
+        date: String,
+        startHour: Number,
+        endHour: Number,
+        pricePerHour: Number,
+        note: String,
+      },
+    ],
+  })
+  customDatePrices?: {
+    date: string;
+    startHour: number;
+    endHour: number;
+    pricePerHour: number;
+    note?: string;
+  }[];
+
+  @Prop({ type: Number, default: 0 })
+  minimumDepositAmount?: number;
+
   @Prop({ type: Boolean, default: true })
   isActive: boolean;
 

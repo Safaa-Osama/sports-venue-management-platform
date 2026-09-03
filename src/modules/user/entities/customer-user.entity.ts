@@ -56,6 +56,33 @@ export class CustomerUser {
 
   @Prop({ type: String, enum: CustomerStatusEnum, default: CustomerStatusEnum.active, })
   status: CustomerStatusEnum;
+
+  @Prop({ type: String })
+  statusReason?: string;
+
+  @Prop({ type: Date })
+  statusUpdatedAt?: Date;
+
+  @Prop({ type: Types.ObjectId, ref: 'AdminUser' })
+  statusUpdatedBy?: Types.ObjectId;
+
+  @Prop({
+    type: [
+      {
+        token: { type: String, required: true },
+        platform: { type: String, default: 'unknown' },
+        updatedAt: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
+  })
+  pushTokens: { token: string; platform: string; updatedAt?: Date }[];
+
+  @Prop({ type: String, enum: ['ar', 'en'], default: 'ar' })
+  locale: string;
+
+  @Prop({ type: Number, default: 0 })
+  noShowCount?: number;
 }
 
 export const CustomerUserSchema = SchemaFactory.createForClass(CustomerUser);

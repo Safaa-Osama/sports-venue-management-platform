@@ -2,10 +2,12 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomUUID } from 'crypto';
 import { Types } from 'mongoose';
 import {
@@ -21,6 +23,7 @@ import { VenueRepo } from 'src/common/repositories/venue-repo';
 import { UserDocument } from '../user/entities/user.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { BookingGateway } from '../booking/booking.gateway';
+import { PushNotificationService } from '../push-notification/push-notification.service';
 import {
   CreatePaymentDto,
   MarkCashPaidDto,
@@ -30,12 +33,15 @@ import {
 
 @Injectable()
 export class PaymentService {
+  private readonly logger = new Logger(PaymentService.name);
+
   constructor(
     private readonly paymentRepo: PaymentRepo,
     private readonly bookingRepo: BookingRepo,
     private readonly venueRepo: VenueRepo,
     private readonly walletService: WalletService,
     private readonly paymobService: PaymobService,
+    private readonly pushService: PushNotificationService,
     @Optional() private readonly bookingGateway?: BookingGateway,
   ) { }
 
@@ -76,8 +82,36 @@ export class PaymentService {
       );
     }
 
+    const targetBookings = booking.groupId
+      ? await this.bookingRepo.find({
+          filter: { groupId: booking.groupId },
+        })
+      : [booking];
+
+    const venue = await this.venueRepo.findById(booking.venueId);
+    const totalGroupFinalPrice = targetBookings.reduce(
+      (sum, b) => sum + (b.finalPrice ?? b.totalPrice ?? 0),
+      0,
+    );
+
+    let paymentAmount = totalGroupFinalPrice;
+    let isDepositOnly = false;
+    if (
+      venue?.minimumDepositAmount !== undefined &&
+      venue?.minimumDepositAmount !== null &&
+      venue.minimumDepositAmount > 0
+    ) {
+      const depositRequired =
+        targetBookings.length * venue.minimumDepositAmount;
+      paymentAmount = Math.min(depositRequired, totalGroupFinalPrice);
+      isDepositOnly = paymentAmount < totalGroupFinalPrice;
+    }
+
+    const targetPaymentStatus = isDepositOnly
+      ? PaymentStatusEnum.partially_paid
+      : PaymentStatusEnum.paid;
+
     const transactionId = this.generateTransactionId();
-    const paymentAmount = booking.finalPrice ?? booking.totalPrice ?? 0;
 
     if (paymentMethod === PaymentMethodEnum.wallet) {
       await this.walletService.payForBooking(
@@ -88,23 +122,36 @@ export class PaymentService {
 
       const payment = await this.paymentRepo.create({
         bookingId: booking._id,
+        groupId: booking.groupId,
         userId: user._id,
         amount: paymentAmount,
         paymentMethod: PaymentMethodEnum.wallet,
         transactionId,
-        status: PaymentStatusEnum.paid,
+        status: targetPaymentStatus,
         paidAt: new Date(),
       });
 
-      await this.bookingRepo.findByIdAndUpdate({
-        id: booking._id,
-        update: {
-          paymentStatus: PaymentStatusEnum.paid,
-          status: BookingStatusEnum.confirmed,
-          paymentMethod: PaymentMethodEnum.wallet,
-          expiresAt: null,
-        },
-      });
+      for (const b of targetBookings) {
+        const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
+        const bPaid = isDepositOnly
+          ? Number(((bookingFinal / (totalGroupFinalPrice || 1)) * paymentAmount).toFixed(2))
+          : bookingFinal;
+        const bRemaining = Math.max(0, Number((bookingFinal - bPaid).toFixed(2)));
+        const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
+          id: b._id,
+          update: {
+            paymentStatus: targetPaymentStatus,
+            status: BookingStatusEnum.confirmed,
+            paymentMethod: PaymentMethodEnum.wallet,
+            paidAmount: bPaid,
+            remainingAmount: bRemaining,
+            expiresAt: null,
+          },
+        });
+        if (this.bookingGateway && updatedBooking) {
+          this.bookingGateway.emitBookingConfirmed(updatedBooking);
+        }
+      }
 
       return {
         message: 'Payment processed successfully via wallet',
@@ -115,6 +162,7 @@ export class PaymentService {
     if (paymentMethod === PaymentMethodEnum.cash) {
       const payment = await this.paymentRepo.create({
         bookingId: booking._id,
+        groupId: booking.groupId,
         userId: user._id,
         amount: paymentAmount,
         paymentMethod: PaymentMethodEnum.cash,
@@ -122,14 +170,19 @@ export class PaymentService {
         status: PaymentStatusEnum.pay_at_venue,
       });
 
-      await this.bookingRepo.findByIdAndUpdate({
-        id: booking._id,
-        update: {
-          paymentStatus: PaymentStatusEnum.pay_at_venue,
-          paymentMethod: PaymentMethodEnum.cash,
-          expiresAt: null,
-        },
-      });
+      for (const b of targetBookings) {
+        const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
+          id: b._id,
+          update: {
+            paymentStatus: PaymentStatusEnum.pay_at_venue,
+            paymentMethod: PaymentMethodEnum.cash,
+            expiresAt: null,
+          },
+        });
+        if (this.bookingGateway && updatedBooking) {
+          this.bookingGateway.emitBookingConfirmed(updatedBooking);
+        }
+      }
 
       return {
         message: 'Pay at venue selected. Please present payment upon arrival.',
@@ -140,6 +193,7 @@ export class PaymentService {
     if (paymentMethod === PaymentMethodEnum.paymob) {
       const payment = await this.paymentRepo.create({
         bookingId: booking._id,
+        groupId: booking.groupId,
         userId: user._id,
         amount: paymentAmount,
         paymentMethod: PaymentMethodEnum.paymob,
@@ -149,20 +203,22 @@ export class PaymentService {
 
       const anyUser: any = user;
       const checkoutData = await this.paymobService.createPaymentIntention({
-        bookingId: booking._id.toString(),
+        bookingId: booking.groupId || booking._id.toString(),
         transactionId,
         amount: paymentAmount,
         userEmail: anyUser.email || undefined,
         userName: anyUser.userName || 'Customer',
-        userPhone: anyUser.phone[0] || undefined,
+        userPhone: (Array.isArray(anyUser.phone) ? anyUser.phone[0] : anyUser.phone) || '+201000000000',
       });
 
-      await this.bookingRepo.findByIdAndUpdate({
-        id: booking._id,
-        update: {
-          paymentMethod: PaymentMethodEnum.paymob,
-        },
-      });
+      for (const b of targetBookings) {
+        await this.bookingRepo.findByIdAndUpdate({
+          id: b._id,
+          update: {
+            paymentMethod: PaymentMethodEnum.paymob,
+          },
+        });
+      }
 
       return {
         message: 'Online payment initiated',
@@ -193,6 +249,57 @@ export class PaymentService {
           path: 'bookingId',
           select:
             'bookingCode date startTime endTime totalPrice finalPrice status',
+        },
+      ],
+    });
+
+    return {
+      message: 'Payments retrieved successfully',
+      ...result,
+    };
+  }
+
+  async getAllPayments(query: QueryPaymentDto & { startDate?: string; endDate?: string; search?: string }) {
+    const { page = 1, limit = 50, status, paymentMethod, startDate, endDate, search } = query;
+    const filter: any = {};
+
+    if (status) filter.status = status;
+    if (paymentMethod) filter.paymentMethod = paymentMethod;
+
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
+
+    if (search && search.trim()) {
+      const q = search.trim();
+      filter.$or = [
+        { transactionId: { $regex: q, $options: 'i' } },
+        { referenceId: { $regex: q, $options: 'i' } },
+        { 'paymobOrder.id': isNaN(Number(q)) ? undefined : Number(q) },
+      ].filter(Boolean);
+    }
+
+    const result = await this.paymentRepo.paginate({
+      page,
+      limit,
+      search: filter,
+      sort: { createdAt: -1 },
+      populate: [
+        { path: 'userId', select: 'userName email phone name' },
+        {
+          path: 'bookingId',
+          select: 'bookingCode date startTime endTime totalPrice finalPrice venueId venueName customerName customerPhone',
+          populate: { path: 'venueId', select: 'venueName name address' },
         },
       ],
     });
@@ -314,14 +421,41 @@ export class PaymentService {
     payment.paidAt = new Date();
     await payment.save();
 
-    await this.bookingRepo.findByIdAndUpdate({
-      id: payment.bookingId,
-      update: {
-        paymentStatus: PaymentStatusEnum.paid,
-        status: BookingStatusEnum.confirmed,
-        expiresAt: null,
-      },
-    });
+    const targetBookings = payment.groupId
+      ? await this.bookingRepo.find({
+          filter: { groupId: payment.groupId },
+        })
+      : payment.bookingId
+        ? [await this.bookingRepo.findById(payment.bookingId)].filter(Boolean)
+        : [];
+
+    for (const b of targetBookings) {
+      if (!b) continue;
+      const updated = await this.bookingRepo.findByIdAndUpdate({
+        id: b._id,
+        update: {
+          paymentStatus: PaymentStatusEnum.paid,
+          status: BookingStatusEnum.confirmed,
+          expiresAt: null,
+        },
+      });
+      if (this.bookingGateway && updated) {
+        this.bookingGateway.emitBookingConfirmed(updated);
+      }
+      if (updated && payment.userId) {
+        this.pushService.sendToCustomer(
+          payment.userId.toString(),
+          'PAYMENT_APPROVED',
+          {
+            bookingCode: updated.bookingCode || '',
+          },
+          {
+            route: '/',
+            bookingId: updated._id?.toString(),
+          },
+        ).catch(() => {});
+      }
+    }
 
     return {
       message: 'Cash payment marked as received successfully',
@@ -335,9 +469,12 @@ export class PaymentService {
       throw new NotFoundException('Payment transaction not found');
     }
 
-    if (payment.status !== PaymentStatusEnum.paid) {
+    if (
+      payment.status !== PaymentStatusEnum.paid &&
+      payment.status !== PaymentStatusEnum.partially_paid
+    ) {
       throw new BadRequestException(
-        'Only completed/paid payments can be refunded',
+        'Only completed or partially paid payments can be refunded',
       );
     }
 
@@ -355,11 +492,21 @@ export class PaymentService {
     }
 
     // Credit refunded amount back to user's wallet
-    await this.walletService.refundBooking(
+    const refundRes = await this.walletService.refundBooking(
       payment.userId,
       refundAmount,
-      payment.bookingId.toString(),
+      payment.bookingId
+        ? payment.bookingId.toString()
+        : payment.groupId || 'GROUP_REFUND',
     );
+
+    if (this.bookingGateway && refundRes?.updatedWallet) {
+      this.bookingGateway.emitWalletUpdated(payment.userId.toString(), {
+        balance: refundRes.updatedWallet.balance,
+        reason: body.reason || 'Booking cancelled and refunded to wallet',
+        bookingId: payment.bookingId?.toString(),
+      });
+    }
 
     const newRefundedTotal = (payment.refundedAmount || 0) + refundAmount;
     payment.refundedAmount = newRefundedTotal;
@@ -372,14 +519,31 @@ export class PaymentService {
 
     await payment.save();
 
-    // Cancel related booking and mark payment status as refunded
-    await this.bookingRepo.findByIdAndUpdate({
-      id: payment.bookingId,
-      update: {
-        status: BookingStatusEnum.cancelled,
-        paymentStatus: PaymentStatusEnum.refunded,
-      },
-    });
+    const targetBookings = payment.groupId
+      ? await this.bookingRepo.find({
+          filter: { groupId: payment.groupId },
+        })
+      : payment.bookingId
+        ? [await this.bookingRepo.findById(payment.bookingId)].filter(Boolean)
+        : [];
+
+    for (const b of targetBookings) {
+      if (!b) continue;
+      await this.bookingRepo.findByIdAndUpdate({
+        id: b._id,
+        update: {
+          status: BookingStatusEnum.cancelled,
+          paymentStatus: PaymentStatusEnum.refunded,
+          paidAmount: 0,
+          remainingAmount: 0,
+          expiresAt: null,
+        },
+      });
+      if (this.bookingGateway) {
+        this.bookingGateway.emitSlotReleased(b);
+        this.bookingGateway.emitBookingCancelled(b, refundAmount);
+      }
+    }
 
     return {
       message: `Payment refund of ${refundAmount} EGP processed successfully to user wallet`,
@@ -389,155 +553,102 @@ export class PaymentService {
 
   async handlePaymobWebhook(payload: any, hmac?: string) {
     const isValidHmac = this.paymobService.verifyWebhookHmac(payload, hmac);
-    const enforceHmac =
-      process.env.PAYMOB_ENFORCE_HMAC === 'true' ||
-      process.env.NODE_ENV === 'production';
-
     if (!isValidHmac) {
-      if (enforceHmac) {
-        throw new UnauthorizedException('Invalid Paymob HMAC signature');
-      } else {
-        console.warn(
-          '⚠️ [PaymentService] HMAC signature mismatch. Bypassing in development mode to permit transaction processing. Set PAYMOB_ENFORCE_HMAC=true to strictly block mismatches.',
-        );
-      }
+      throw new UnauthorizedException('Invalid Paymob HMAC signature');
     }
 
-    // ── Resolve transaction object from either Intention API or Legacy API format ──
-    // Intention API: { intention: {...}, transaction: {...}, hmac: "..." }
-    // Legacy API:    { type: "TRANSACTION", obj: {...} }
-    const txn = payload?.transaction || payload?.obj || payload || {};
-    const intention = payload?.intention || {};
-    const order = txn?.order || payload?.order;
+    const obj = payload?.obj;
+    if (!obj) {
+      this.logger.warn('[PaymentService] Missing obj in Paymob webhook payload');
+      return {
+        received: true,
+        note: 'Missing obj in Paymob webhook payload',
+      };
+    }
 
-    const isSuccess =
-      txn.success === true ||
-      txn.success === 'true' ||
-      txn.txn_response_code === 'APPROVED' ||
-      txn.data?.message === 'Approved';
-    const isPending = txn.pending === true || txn.pending === 'true';
+    const specialReference = obj.order?.merchant_order_id;
+    if (!specialReference) {
+      this.logger.warn(
+        '[PaymentService] Missing obj.order.merchant_order_id in Paymob webhook payload',
+      );
+      return {
+        received: true,
+        note: 'Missing obj.order.merchant_order_id in Paymob webhook payload',
+      };
+    }
 
-    // Collect all candidate identifier keys across both API formats
-    const candidateIds: string[] = [
-      // Intention API: special_reference is under intention, not transaction
-      intention?.special_reference,
-      // Legacy API: special_reference is under obj
-      txn?.special_reference,
-      payload?.special_reference,
-      // Order-level IDs
-      order?.merchant_order_id,
-      txn?.merchant_order_id,
-      payload?.merchant_order_id,
-      txn?.merchant_txn_ref,
-      // Order ID (nested object or flat)
-      order?.id?.toString(),
-      txn?.order_id?.toString(),
-      txn?.['order.id']?.toString(),
-      // Transaction ID (Paymob unique ID — used for deduplication)
-      txn?.id?.toString(),
-      txn?.transaction_id?.toString(),
-      // Application-level IDs
-      txn?.bookingId?.toString(),
-      txn?.booking_id?.toString(),
-      txn?.bookingCode?.toString(),
-      txn?.booking_code?.toString(),
-    ].filter(
-      (id): id is string => typeof id === 'string' && id.trim().length > 0,
-    );
+    const isSuccess = obj.success === true;
+    const isPending = obj.pending === true;
 
-    console.log(
-      '📩 [PaymentService] Processing Paymob webhook. Candidate reference IDs:',
-      candidateIds,
-    );
-
-    // 1. Search for existing Payment record
-    const validObjectIds = candidateIds
-      .filter((id) => Types.ObjectId.isValid(id))
-      .map((id) => new Types.ObjectId(id));
-
-    let payment = await this.paymentRepo.findOne({
-      filter: {
-        $or: [
-          { transactionId: { $in: candidateIds } },
-          ...(validObjectIds.length > 0
-            ? [
-                { _id: { $in: validObjectIds } },
-                { bookingId: { $in: validObjectIds } },
-              ]
-            : []),
-        ],
-      },
+    const payment = await this.paymentRepo.findOne({
+      filter: { transactionId: specialReference },
     });
 
-    let booking: any = null;
-    if (payment) {
-      booking = await this.bookingRepo.findById(payment.bookingId);
-    } else {
-      // 2. Search for existing Booking record directly
-      booking = await this.bookingRepo.findOne({
-        filter: {
-          $or: [
-            { bookingCode: { $in: candidateIds } },
-            ...(validObjectIds.length > 0
-              ? [{ _id: { $in: validObjectIds } }]
-              : []),
-          ],
-        },
-      });
+    if (!payment) {
+      this.logger.warn(
+        `[PaymentService] No matching payment record found for transactionId/specialReference: ${specialReference}`,
+      );
+      return {
+        received: true,
+        note: 'No matching payment record found',
+        specialReference,
+      };
+    }
 
-      if (booking) {
-        // Create initial payment tracking record if not found
-        payment = await this.paymentRepo.create({
-          bookingId: booking._id,
-          userId: booking.userId,
-          amount: booking.finalPrice ?? booking.totalPrice,
-          transactionId:
-            intention?.special_reference ||
-            txn?.special_reference ||
-            candidateIds[0] ||
-            `PAYMOB-${txn?.id || Date.now()}`,
-          status: PaymentStatusEnum.unpaid,
+    this.logger.log(
+      `[PaymentService] Located payment record: ID=${payment._id} | Amount=${payment.amount} EGP | Status=${payment.status} | GroupId=${payment.groupId || 'NONE'}`,
+    );
+
+    // 2. Fetch associated booking(s)
+    let booking: any = null;
+    let groupBookings: any[] = [];
+    if (payment.groupId) {
+      groupBookings = await this.bookingRepo.find({
+        filter: { groupId: payment.groupId },
+      });
+      booking = groupBookings[0] || null;
+    }
+
+    if (!booking && payment.bookingId) {
+      booking = await this.bookingRepo.findById(payment.bookingId);
+      if (booking && booking.groupId && groupBookings.length === 0) {
+        groupBookings = await this.bookingRepo.find({
+          filter: { groupId: booking.groupId },
         });
       }
     }
 
-    if (!payment || !booking) {
-      console.warn(
-        '⚠️ [PaymentService] No matching payment or booking record found for Paymob webhook candidates:',
-        candidateIds,
+    if (!booking) {
+      this.logger.warn(
+        `No booking found associated with payment ${payment._id}`,
       );
       return {
         received: true,
-        note: 'No matching payment or booking record found',
-        candidateIds,
+        note: 'No matching booking record found for payment',
+        paymentId: payment._id,
       };
     }
 
-    // Deduplication check: Check if this specific Paymob transaction ID was already fulfilled
-    if (txn?.id) {
+    // 3. Deduplication check: Check if this specific Paymob transaction ID was already fulfilled
+    if (obj.id) {
       const existingTxnPayment = await this.paymentRepo.findOne({
         filter: {
-          paymobTransactionId: String(txn.id),
+          paymobTransactionId: String(obj.id),
           status: PaymentStatusEnum.paid,
+          _id: { $ne: payment._id },
         },
       });
       if (existingTxnPayment) {
-        console.log(
-          `ℹ️ [PaymentService] Duplicate Paymob webhook event for transaction ID ${txn.id}. Already processed as paid.`,
-        );
         return {
           received: true,
           status: PaymentStatusEnum.paid,
-          note: `Duplicate callback on Paymob transaction ID ${txn.id}. Already fulfilled.`,
+          note: `Webhook already processed. Duplicate callback on Paymob transaction ID ${obj.id}.`,
         };
       }
     }
 
-    // 3. Idempotency check: Already processed
+    // 4. Idempotency check: Already processed
     if (payment.status === PaymentStatusEnum.paid) {
-      console.log(
-        `ℹ️ [PaymentService] Payment for booking ${booking.bookingCode || booking._id} is already marked as paid.`,
-      );
       return {
         received: true,
         status: payment.status,
@@ -553,19 +664,65 @@ export class PaymentService {
       };
     }
 
-    // 4. Handle Success Path
+    // 5. Handle Success Path
     if (isSuccess && !isPending) {
       const now = new Date();
-      const isBookingExpired =
-        booking.status === BookingStatusEnum.expired ||
-        (booking.status === BookingStatusEnum.pending &&
-          booking.expiresAt &&
-          new Date(booking.expiresAt) <= now);
-      const isBookingCancelled =
-        booking.status === BookingStatusEnum.cancelled;
+      let targetBookings: any[] = [];
+      const targetGroupId = payment.groupId || booking.groupId;
+      if (targetGroupId) {
+        if (groupBookings && groupBookings.length > 0) {
+          targetBookings = groupBookings;
+        } else {
+          const found = await this.bookingRepo.find({
+            filter: { groupId: targetGroupId },
+          });
+          if (found && found.length > 0) {
+            targetBookings = found;
+          }
+        }
+      }
+      if (!targetBookings.length) {
+        targetBookings = [booking];
+      }
+
+      const totalGroupDue = targetBookings.reduce(
+        (sum, b) => sum + (b.finalPrice ?? b.totalPrice ?? 0),
+        0,
+      );
+
+      // Extract effective amount from webhook amount_cents if provided
+      const paidCents = Number(obj.amount_cents);
+      const effectiveCardPaid =
+        !isNaN(paidCents) && paidCents > 0
+          ? Number((paidCents / 100).toFixed(2))
+          : payment.amount || 0;
+
+      const walletDeduction = Number(payment.walletDeduction || 0);
+      const totalActualPaid = Number(
+        (effectiveCardPaid + walletDeduction).toFixed(2),
+      );
+
+      if (effectiveCardPaid > 0 && effectiveCardPaid !== payment.amount) {
+        payment.amount = effectiveCardPaid;
+      }
+
+      const isDeposit = totalActualPaid < totalGroupDue;
+      const targetPaymentStatus = isDeposit
+        ? PaymentStatusEnum.partially_paid
+        : PaymentStatusEnum.paid;
+
+      const isAnyExpiredOrCancelled = targetBookings.some((b) => {
+        return (
+          b.status === BookingStatusEnum.expired ||
+          b.status === BookingStatusEnum.cancelled ||
+          (b.status === BookingStatusEnum.pending &&
+            b.expiresAt &&
+            new Date(b.expiresAt) <= now)
+        );
+      });
 
       // Handle late payment on expired or cancelled booking: auto-refund to user wallet
-      if (isBookingExpired || isBookingCancelled) {
+      if (isAnyExpiredOrCancelled) {
         payment.status = PaymentStatusEnum.refunded;
         payment.paidAt = new Date();
         payment.refundedAmount = payment.amount;
@@ -576,17 +733,21 @@ export class PaymentService {
         await this.walletService.refundBooking(
           payment.userId,
           payment.amount,
-          payment.bookingId.toString(),
+          payment.bookingId
+            ? payment.bookingId.toString()
+            : payment.groupId || 'GROUP_REFUND',
         );
 
-        if (booking.status !== BookingStatusEnum.cancelled) {
-          await this.bookingRepo.findByIdAndUpdate({
-            id: booking._id,
-            update: {
-              status: BookingStatusEnum.expired,
-              paymentStatus: PaymentStatusEnum.refunded,
-            },
-          });
+        for (const b of targetBookings) {
+          if (b.status !== BookingStatusEnum.cancelled) {
+            await this.bookingRepo.findByIdAndUpdate({
+              id: b._id,
+              update: {
+                status: BookingStatusEnum.expired,
+                paymentStatus: PaymentStatusEnum.refunded,
+              },
+            });
+          }
         }
 
         return {
@@ -600,72 +761,180 @@ export class PaymentService {
       const updatedPayment = await this.paymentRepo.findOneAndUpdate({
         filter: {
           _id: payment._id,
-          status: { $ne: PaymentStatusEnum.paid },
+          status: {
+            $nin: [PaymentStatusEnum.paid, PaymentStatusEnum.partially_paid],
+          },
         },
         update: {
-          status: PaymentStatusEnum.paid,
+          status: targetPaymentStatus,
           paidAt: new Date(),
-          ...(txn?.id ? { paymobTransactionId: String(txn.id) } : {}),
+          ...(obj.id ? { paymobTransactionId: String(obj.id) } : {}),
         },
       });
 
       if (!updatedPayment) {
         return {
           received: true,
-          status: PaymentStatusEnum.paid,
+          status: payment.status,
           note: 'Payment was already fulfilled by concurrent callback.',
         };
       }
 
-      const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
-        id: payment.bookingId,
-        update: {
-          paymentStatus: PaymentStatusEnum.paid,
-          status: BookingStatusEnum.confirmed,
-          expiresAt: null,
-        },
-      });
+      if (payment.walletDeduction && payment.walletDeduction > 0) {
+        try {
+          await this.walletService.payForBooking(
+            payment.userId,
+            payment.walletDeduction,
+            payment.bookingId
+              ? payment.bookingId.toString()
+              : payment.groupId || 'PAYMOB_WALLET_SPLIT',
+          );
+        } catch (wErr) {
+          this.logger.error('Wallet deduction on Paymob success error:', wErr);
+        }
+      }
+
+      const confirmedBookings: any[] = [];
+      for (const b of targetBookings) {
+        const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
+        const bPaid = isDeposit
+          ? Number(
+              (
+                (bookingFinal / (totalGroupDue || 1)) *
+                totalActualPaid
+              ).toFixed(2),
+            )
+          : bookingFinal;
+        const bRemaining = Math.max(
+          0,
+          Number((bookingFinal - bPaid).toFixed(2)),
+        );
+        const updated = await this.bookingRepo.findByIdAndUpdate({
+          id: b._id,
+          update: {
+            paymentStatus: targetPaymentStatus,
+            status: BookingStatusEnum.confirmed,
+            paidAmount: bPaid,
+            remainingAmount: bRemaining,
+            expiresAt: null,
+          },
+        });
+        if (updated) {
+          confirmedBookings.push(updated);
+          if (this.bookingGateway) {
+            this.bookingGateway.emitBookingConfirmed(updated);
+          }
+        }
+      }
 
       // Emit real-time Socket.IO events to update mobile app and venue dashboard
-      if (this.bookingGateway && updatedBooking) {
+      if (this.bookingGateway && confirmedBookings.length > 0) {
         try {
-          this.bookingGateway.emitBookingConfirmed(updatedBooking);
-
           const venue = await this.venueRepo.findById(booking.venueId);
           if (venue?.createdBy) {
             this.bookingGateway.emitOwnerNotification(
               venue.createdBy.toString(),
-              updatedBooking,
+              confirmedBookings[0],
               'booking_confirmed',
             );
           }
         } catch (socketErr: any) {
-          console.warn(
-            '⚠️ [PaymentService] Failed to emit socket event:',
-            socketErr?.message || socketErr,
+          this.logger.warn(
+            `Failed to emit socket event: ${socketErr?.message || socketErr}`,
           );
         }
       }
 
-      console.log(
-        `🎉 [PaymentService] Payment confirmed for booking ${booking.bookingCode || booking._id}. Transaction ID: ${txn?.id || 'N/A'}`,
+      this.logger.log(
+        `[PaymentService] >>> PAYMENT SUCCESS CONFIRMED: Payment ${payment._id} -> ${targetPaymentStatus}. Confirmed ${confirmedBookings.length} booking(s). Paymob Txn ID: ${obj.id || 'N/A'}`,
       );
       return {
         received: true,
-        status: PaymentStatusEnum.paid,
+        status: targetPaymentStatus,
+        groupId: payment.groupId || booking.groupId,
         bookingId: booking._id,
-        transactionId: txn?.id,
+        transactionId: obj.id,
       };
     } else if (!isSuccess && !isPending) {
+      const currentStatus = String(payment.status);
+      if (
+        currentStatus === PaymentStatusEnum.paid ||
+        currentStatus === PaymentStatusEnum.partially_paid ||
+        currentStatus === PaymentStatusEnum.refunded
+      ) {
+        return {
+          received: true,
+          status: payment.status,
+          note: 'Ignored failed webhook for already completed payment',
+        };
+      }
       payment.status = PaymentStatusEnum.unpaid;
       await payment.save();
       return {
         received: true,
         status: payment.status,
-        message: txn?.data?.message || 'Transaction was declined or failed',
+        message: obj.data?.message || 'Transaction was declined or failed',
       };
     }
 
     return { received: true, status: payment.status };
+  }
+
+  /**
+   * Automated server-side reconciliation cron job running every 5 minutes.
+   * Inquires Paymob for any payment stuck in 'unpaid' between 5 minutes and 2 hours ago.
+   * If approved on Paymob, automatically fulfills the booking and payment.
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async reconcilePendingPayments() {
+    try {
+      const now = Date.now();
+      const fiveMinutesAgo = new Date(now - 5 * 60 * 1000);
+      const twoHoursAgo = new Date(now - 120 * 60 * 1000);
+
+      const pendingPayments = await this.paymentRepo.find({
+        filter: {
+          paymentMethod: PaymentMethodEnum.paymob,
+          status: PaymentStatusEnum.unpaid,
+          createdAt: { $gte: twoHoursAgo, $lte: fiveMinutesAgo },
+        },
+      });
+
+      if (!pendingPayments || pendingPayments.length === 0) {
+        return;
+      }
+
+      for (const payment of pendingPayments) {
+        const refId = payment.transactionId;
+        if (!refId) continue;
+
+        const remoteTxn = await this.paymobService.inquireTransactionByReference(refId);
+        if (remoteTxn) {
+          const isSuccess =
+            remoteTxn.success === true ||
+            remoteTxn.success === 'true' ||
+            remoteTxn.txn_response_code === 'APPROVED' ||
+            remoteTxn.data?.message === 'Approved';
+
+          if (isSuccess && !remoteTxn.pending) {
+            this.logger.log(
+              `[Reconciliation] Fulfilling payment for reference ${refId} (Paymob Txn ID: ${remoteTxn.id})`,
+            );
+            await this.handlePaymobWebhook(
+              {
+                transaction: remoteTxn,
+                special_reference: refId,
+              },
+              'reconciliation-internal',
+            );
+          }
+        }
+      }
+    } catch (cronErr: any) {
+      this.logger.error(
+        'Error during payment reconciliation cron:',
+        cronErr?.message || cronErr,
+      );
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, Optional, } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { AdvertisementPositionEnum, AdvertisementStatusEnum, } from 'src/common/enums/advertisementEnum';
 import { AdvertisementRepo } from 'src/common/repositories/advertisement-repo';
@@ -11,8 +11,11 @@ import {
 import { AdvertisementDocument } from './entities/advertisement.entity';
 import { AdminUserDocument } from '../user/entities/admin-user.entity';
 
+import { PushNotificationService } from '../push-notification/push-notification.service';
+
 @Injectable()
 export class AdvertisementService {
+  private readonly logger = new Logger(AdvertisementService.name);
   private readonly CACHE_PREFIX = 'ad:dashboard:';
   private readonly CACHE_TTL_SECONDS = 300; // 5 minutes
 
@@ -20,6 +23,7 @@ export class AdvertisementService {
     private readonly advertisementRepo: AdvertisementRepo,
     private readonly s3Service: S3Service,
     private readonly redisService: RedisService,
+    private readonly pushService: PushNotificationService,
     @Optional() private readonly bookingGateway?: BookingGateway,
   ) { }
 
@@ -67,7 +71,7 @@ export class AdvertisementService {
         this.bookingGateway.emitAdvertisementsUpdated(action, adId);
       }
     } catch (err) {
-      console.warn('[AdvertisementService] Failed to broadcast advertisements_updated event:', err);
+      this.logger.warn(`Failed to broadcast advertisements_updated event: ${err?.message || err}`);
     }
   }
 
@@ -137,6 +141,16 @@ export class AdvertisementService {
 
       const createdAd = await this.advertisementRepo.create(adData);
       await this.invalidateDashboardCache();
+
+      if (computedStatus === AdvertisementStatusEnum.active) {
+        this.pushService.broadcastToAllCustomers('NEW_PROMO', {
+          promoTitle: (createdAd as any).title || 'New Promo',
+          promoDescription: (createdAd as any).description || 'Check out the latest offer on ArenaHub!',
+        }, {
+          route: '/',
+          adId: createdAd._id?.toString(),
+        }).catch(() => {});
+      }
 
       return await this.formatAdvertisementWithImageUrl(createdAd);
     } catch (error) {

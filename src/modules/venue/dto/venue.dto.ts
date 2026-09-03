@@ -8,6 +8,8 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Min,
+  Max,
   ValidateNested,
 } from 'class-validator';
 import { AtLeastOne } from 'src/common/decorator/AtLeastOne.decorator';
@@ -18,6 +20,21 @@ import {
 } from 'src/common/decorator/transform.decorator';
 
 export class CustomHourPriceDto {
+  @ApiPropertyOptional({
+    description: 'Optional ID for custom hour price',
+    example: 'custom-hour-1',
+  })
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional MongoDB _id for custom hour price',
+  })
+  @IsOptional()
+  @IsString()
+  _id?: string;
+
   @ApiProperty({
     description: 'Specific hour of the day in 24h format (0 to 23)',
     example: 20,
@@ -35,6 +52,92 @@ export class CustomHourPriceDto {
   @IsNumber()
   @Type(() => Number)
   pricePerHour: number;
+
+  @ApiPropertyOptional({
+    description: 'Optional label for custom hour price',
+  })
+  @IsOptional()
+  @IsString()
+  label?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional start hour string format',
+  })
+  @IsOptional()
+  @IsString()
+  startHour?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional end hour string format',
+  })
+  @IsOptional()
+  @IsString()
+  endHour?: string;
+}
+
+export class CustomDatePriceDto {
+  @ApiPropertyOptional({
+    description: 'Optional ID for custom date price item',
+    example: 'custom-date-1',
+  })
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional MongoDB _id for custom date price item',
+  })
+  @IsOptional()
+  @IsString()
+  _id?: string;
+
+  @ApiProperty({
+    description: 'Specific date for the custom price in YYYY-MM-DD format',
+    example: '2026-08-31',
+  })
+  @IsString()
+  date: string;
+
+  @ApiProperty({
+    description: 'Start hour of the custom pricing window (0 to 23)',
+    example: 20,
+    minimum: 0,
+    maximum: 23,
+  })
+  @IsNumber()
+  @Min(0)
+  @Max(23)
+  @Type(() => Number)
+  startHour: number;
+
+  @ApiProperty({
+    description: 'End hour of the custom pricing window (1 to 24)',
+    example: 24,
+    minimum: 1,
+    maximum: 24,
+  })
+  @IsNumber()
+  @Min(1)
+  @Max(24)
+  @Type(() => Number)
+  endHour: number;
+
+  @ApiProperty({
+    description: 'Custom price per hour during this specific date window',
+    example: 350,
+  })
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  pricePerHour: number;
+
+  @ApiPropertyOptional({
+    description: 'Optional note or event title for this date pricing rule',
+    example: 'Holiday Match',
+  })
+  @IsOptional()
+  @IsString()
+  note?: string;
 }
 
 export class CreateVenueDto {
@@ -102,7 +205,8 @@ export class CreateVenueDto {
   })
   @IsNotEmpty()
   @IsNumber()
-  @IsPositive()
+  @Min(0)
+  @Max(23)
   @Type(() => Number)
   startWorkingHours: number;
 
@@ -114,7 +218,8 @@ export class CreateVenueDto {
   })
   @IsNotEmpty()
   @IsNumber()
-  @IsPositive()
+  @Min(1)
+  @Max(24)
   @Type(() => Number)
   endWorkingHours: number;
 
@@ -143,6 +248,71 @@ export class CreateVenueDto {
   @Type(() => CustomHourPriceDto)
   @ValidateNested({ each: true })
   customHourPrices?: CustomHourPriceDto[];
+
+  @ApiPropertyOptional({
+    description: 'Date-specific custom pricing rules (JSON array or string)',
+    type: [CustomDatePriceDto],
+    example: [
+      { date: '2026-08-31', startHour: 20, endHour: 24, pricePerHour: 350, note: 'Special Event' },
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @ParseByJson(CustomDatePriceDto)
+  @Type(() => CustomDatePriceDto)
+  @ValidateNested({ each: true })
+  customDatePrices?: CustomDatePriceDto[];
+
+  @ApiPropertyOptional({
+    description: 'Minimum deposit required per slot in EGP (0 for full payment)',
+    example: 50,
+    default: 0,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  minimumDepositAmount?: number;
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of existing image URLs / S3 keys',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  existingImages?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of existing image URLs / S3 keys to retain',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  keepImages?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of image URLs / S3 keys to delete',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  removedImages?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Array or JSON string of image URLs / S3 keys to delete',
+    type: [String],
+  })
+  @IsOptional()
+  @ParseArray()
+  @IsArray()
+  @IsString({ each: true })
+  deleteImages?: string[];
 
   @ApiPropertyOptional({
     description: 'Whether the venue is currently active and open for booking',
@@ -176,6 +346,8 @@ export class GetVenuesQueryDto {
   'endWorkingHours',
   'defaultHourPrice',
   'customHourPrices',
+  'customDatePrices',
+  'minimumDepositAmount',
   'isActive',
   'existingImages',
   'keepImages',

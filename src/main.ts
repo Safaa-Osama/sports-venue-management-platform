@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
@@ -6,7 +6,10 @@ import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/interceptor/response';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const logger = new Logger('Bootstrap');
+  const app = await NestFactory.create(AppModule, {
+    logger: ['log', 'error', 'warn', 'debug', 'verbose'],
+  });
 
   app.enableCors({
     origin: '*',
@@ -95,8 +98,7 @@ All successful responses are returned in the following structure:
   });
 
   await app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
-    console.log(`Swagger API Docs available at: http://localhost:${port}/api/docs`);
+    console.log(`🚀 Server running on http://localhost:${port} | Swagger: http://localhost:${port}/api/docs`);
   });
 }
 bootstrap();

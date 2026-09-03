@@ -102,9 +102,10 @@ export class BookingController {
     @Headers('idempotency-key') idempotencyHeader?: string,
   ) {
     const effectiveIdempotencyKey = idempotencyHeader || body.idempotencyKey;
+    const effectiveUser = body.customerId ? ({ ...user, _id: body.customerId } as any) : user;
     return await this.bookingService.createBooking(
       body,
-      user,
+      effectiveUser,
       effectiveIdempotencyKey,
     );
   }
@@ -139,6 +140,28 @@ export class BookingController {
     @User() user: UserDocument,
   ) {
     return await this.bookingService.getMyBookings(user, query);
+  }
+
+  @Get('customer/:customerId')
+  @ApiOperation({
+    summary: 'Get Customer Booking History (Owner / Admin / Manager)',
+    description: 'Retrieves all reservations for a specific customer.',
+  })
+  @ApiParam({ name: 'customerId', description: 'Customer MongoDB ID', example: '64e8b0a1f2b4c10012345679' })
+  @ApiResponse({ status: 200, description: 'List of customer bookings' })
+  @auth({
+    roles: [
+      RoleEnum.owner,
+      RoleEnum.manager,
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+    ],
+  })
+  async getCustomerBookings(
+    @Param('customerId') customerId: string,
+    @Query() query: QueryBookingDto,
+  ) {
+    return await this.bookingService.getCustomerBookings(customerId, query);
   }
 
   @Get('venue/:venueId')

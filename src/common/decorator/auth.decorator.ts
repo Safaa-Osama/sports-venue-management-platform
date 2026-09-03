@@ -17,7 +17,8 @@ export function auth({
 }: {
   roles?: RoleEnum[];
   tokenType?: TokenEnum;
-}) {
+} = {}) {
+
   return applyDecorators(
     SetMetadata('tokenType', tokenType),
     SetMetadata('roles', roles),

@@ -35,6 +35,21 @@ export class User {
 
   @Prop({ type: Number, default: 0 })
   walletBalance?: number;
+
+  @Prop({
+    type: [
+      {
+        token: { type: String, required: true },
+        platform: { type: String, default: 'unknown' },
+        updatedAt: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
+  })
+  pushTokens: { token: string; platform: string; updatedAt?: Date }[];
+
+  @Prop({ type: String, enum: ['ar', 'en'], default: 'ar' })
+  locale: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

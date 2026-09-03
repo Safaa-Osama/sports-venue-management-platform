@@ -5,6 +5,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   Patch,
   Post,
@@ -38,6 +39,8 @@ import { PaymentService } from './payment.service';
 @ApiTags('Payments')
 @Controller('payment')
 export class PaymentController {
+  private readonly logger = new Logger(PaymentController.name);
+
   constructor(private readonly paymentService: PaymentService) {}
 
   @Post()
@@ -79,6 +82,32 @@ export class PaymentController {
   })
   createPayment(@Body() body: CreatePaymentDto, @User() user: UserDocument) {
     return this.paymentService.createPayment(body, user);
+  }
+
+  @Get()
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get All Payments / Paymob Transactions (Admin / Owner / Manager)',
+    description: 'Retrieves all financial transactions across venues with date range and status filters.',
+  })
+  @ApiQuery({ name: 'startDate', required: false, description: 'Filter start date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'endDate', required: false, description: 'Filter end date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'paymentMethod', required: false, description: 'e.g. paymob, wallet, cash' })
+  @ApiQuery({ name: 'status', required: false, description: 'paid, pending, partially_paid, refunded, failed' })
+  @ApiQuery({ name: 'search', required: false, description: 'Search transaction ID or reference' })
+  @ApiResponse({ status: 200, description: 'Payments list retrieved successfully' })
+  @auth({
+    roles: [
+      RoleEnum.admin,
+      RoleEnum.superAdmin,
+      RoleEnum.owner,
+      RoleEnum.manager,
+    ],
+  })
+  getAllPayments(
+    @Query() query: QueryPaymentDto & { startDate?: string; endDate?: string; search?: string },
+  ) {
+    return this.paymentService.getAllPayments(query);
   }
 
   @Get('my-payments')
@@ -181,61 +210,38 @@ export class PaymentController {
     return this.paymentService.refundPayment(id, body, user);
   }
 
-  @Post('webhook/paymob')
-  @Get('webhook/paymob')
+  @Post(['webhook/paymob', '/api/v1/payment/webhook/paymob'])
+  @Get(['webhook/paymob', '/api/v1/payment/webhook/paymob'])
   @UsePipes(new ValidationPipe({ whitelist: false, forbidNonWhitelisted: false, transform: false }))
-  @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Paymob Payment Gateway Webhook & Redirection Callback (Public)',
-    description:
-      'Unprotected public webhook callback from Paymob (accepts POST & GET). Handles both Intention API format ({ intention, transaction, hmac }) and Legacy API format ({ type, obj }).',
+    summary: 'Paymob Payment Gateway Webhook Callback',
+    description: 'Processes Paymob transaction webhook with HMAC signature from query parameter.',
   })
-  @ApiHeader({ name: 'hmac', description: 'Paymob HMAC signature header', required: false })
-  @ApiQuery({ name: 'hmac', description: 'Paymob HMAC signature query parameter', required: false })
+  @ApiQuery({ name: 'hmac', description: 'Paymob SHA-512 HMAC signature query parameter', required: true })
   @ApiResponse({ status: 200, description: 'Webhook processed successfully' })
   async handlePaymobWebhook(
     @Req() req: Request,
-    @Query('hmac') hmacQuery?: string,
-    @Headers('hmac') hmacHeader?: string,
+    @Body() body: any,
+    @Query('hmac') hmac?: string,
   ) {
-    const rawQuery = (req.query as Record<string, any>) || {};
-    const rawBody = (req.body as Record<string, any>) || {};
-    const rawHeaders = (req.headers as Record<string, any>) || {};
+    const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
+    const obj = body?.obj;
+    const merchantOrderId = obj?.order?.merchant_order_id || 'N/A';
 
-    // Extract HMAC from all possible locations:
-    // - Intention API: body.hmac
-    // - Legacy API: query param ?hmac= or header hmac / x-paymob-signature
-    const extractedHmac =
-      rawBody?.hmac ||
-      hmacQuery ||
-      rawQuery?.hmac ||
-      rawQuery?.HMAC ||
-      hmacHeader ||
-      rawHeaders?.['x-paymob-signature'] ||
-      rawHeaders?.['hmac'] ||
-      rawBody?.obj?.hmac;
+    console.log(`\n================== [PAYMOB WEBHOOK RECEIVED] ==================`);
+    console.log(`  Request URL       : ${req.originalUrl || req.url}`);
+    console.log(`  Request Method    : ${req.method} ${req.path}`);
+    console.log(`  Remote IP         : ${clientIp}`);
+    console.log(`  Merchant Order ID : ${merchantOrderId}`);
+    console.log(`  Transaction ID    : ${obj?.id ?? 'N/A'}`);
+    console.log(`  Order ID          : ${obj?.order?.id ?? 'N/A'}`);
+    console.log(`  Success           : ${obj?.success ?? 'N/A'}`);
+    console.log(`  Amount (Cents)    : ${obj?.amount_cents ?? 'N/A'}`);
+    console.log(`  Query HMAC        : ${hmac || 'MISSING'}`);
+    console.log(`===============================================================\n`);
 
-    // Detect payload format and build unified payload for the service
-    // Intention API format: { intention, transaction, hmac, paymob_request_id, partner_digest }
-    // Legacy API format:    { type, obj: { ...transaction fields } }
-    const isIntentionApi = Boolean(rawBody?.transaction && rawBody?.intention);
-    const isLegacyApi = Boolean(rawBody?.obj || rawBody?.type === 'TRANSACTION');
+    this.logger.log(`Paymob webhook received for merchantOrderId=${merchantOrderId}, txnId=${obj?.id}`);
 
-    console.log('📩 [Paymob Webhook Controller] Incoming Request:', {
-      method: req.method,
-      url: req.url,
-      contentType: req.headers['content-type'],
-      format: isIntentionApi ? 'INTENTION_API' : isLegacyApi ? 'LEGACY_API' : 'UNKNOWN',
-      bodyKeys: Object.keys(rawBody),
-      queryKeys: Object.keys(rawQuery),
-      extractedHmac: extractedHmac ? `${extractedHmac.slice(0, 12)}...` : 'NONE',
-    });
-
-    // Pass the raw body directly — let the service layer handle format detection
-    // This preserves the nested structure (transaction, intention, obj) needed for HMAC
-    return await this.paymentService.handlePaymobWebhook(
-      rawBody,
-      extractedHmac,
-    );
+    return await this.paymentService.handlePaymobWebhook(body, hmac);
   }
 }

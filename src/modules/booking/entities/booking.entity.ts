@@ -24,6 +24,9 @@ export class Booking {
   @Prop({ type: Types.ObjectId, ref: Venue.name, required: true })
   venueId: Types.ObjectId;
 
+  @Prop({ type: String, index: true })
+  groupId?: string;
+
   @Prop({ type: Date, required: true })
   date: Date;
 
@@ -65,6 +68,12 @@ export class Booking {
   @Prop({ type: Number })
   finalPrice?: number;
 
+  @Prop({ type: Number, default: 0 })
+  paidAmount?: number;
+
+  @Prop({ type: Number, default: 0 })
+  remainingAmount?: number;
+
   @Prop({ type: String, enum: PaymentMethodEnum })
   paymentMethod?: PaymentMethodEnum;
 
@@ -76,10 +85,40 @@ export class Booking {
 
   @Prop({ type: String })
   requestHash?: string;
+
+  @Prop({ type: Boolean, default: false })
+  morningReminderSent?: boolean;
+
+  @Prop({ type: Boolean, default: false })
+  twoHourReminderSent?: boolean;
+
+  @Prop({ type: String })
+  cancellationReason?: string;
+
+  @Prop({ type: String })
+  cancelledBy?: string;
+
+  @Prop({ type: Date })
+  cancelledAt?: Date;
 }
 
 export const BookingSchema = SchemaFactory.createForClass(Booking);
 BookingSchema.index({ userId: 1, idempotencyKey: 1 }, { sparse: true });
+BookingSchema.index(
+  { venueId: 1, date: 1, startTime: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: {
+        $in: [
+          BookingStatusEnum.confirmed,
+          BookingStatusEnum.pending,
+          BookingStatusEnum.completed,
+        ],
+      },
+    },
+  },
+);
 
 const BookingModel = MongooseModule.forFeature([
   { name: Booking.name, schema: BookingSchema },

@@ -12,6 +12,7 @@ import adminUserModel from '../user/entities/admin-user.entity';
 import customerUserModel from '../user/entities/customer-user.entity';
 import venueModel from '../venue/entities/venue.entity';
 import { WalletModule } from '../wallet/wallet.module';
+import { PushNotificationModule } from '../push-notification/push-notification.module';
 import paymentModel from './entities/payment.entity';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
@@ -26,6 +27,7 @@ import { BookingGateway } from '../booking/booking.gateway';
     customerUserModel,
     adminUserModel,
     WalletModule,
+    PushNotificationModule,
   ],
   controllers: [PaymentController],
   providers: [

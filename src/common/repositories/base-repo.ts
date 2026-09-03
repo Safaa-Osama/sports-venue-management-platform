@@ -84,10 +84,11 @@ abstract class BaseRepo<TDocument> {
     update: UpdateQuery<TDocument>;
     options?: QueryOptions<TDocument>;
   }): Promise<HydratedDocument<TDocument> | null> {
+    const { new: _, ...cleanOptions } = (options || {}) as any;
     return this.Model.findOneAndUpdate(filter, update, {
       returnDocument: 'after',
-      ...options,
-    });
+      ...cleanOptions,
+    }) as any;
   }
 
   async findByIdAndUpdate({
@@ -99,10 +100,11 @@ abstract class BaseRepo<TDocument> {
     update: UpdateQuery<TDocument>;
     options?: QueryOptions<TDocument>;
   }): Promise<HydratedDocument<TDocument> | null> {
+    const { new: _, ...cleanOptions } = (options || {}) as any;
     return this.Model.findByIdAndUpdate(id, update, {
       returnDocument: 'after',
-      ...options,
-    });
+      ...cleanOptions,
+    }) as any;
   }
 
   async findOneAndDelete({
@@ -190,6 +192,14 @@ abstract class BaseRepo<TDocument> {
 
   async countDocuments(filter?: QueryFilter<TDocument>): Promise<number> {
     return this.Model.countDocuments(filter ?? {});
+  }
+
+  public async aggregate<R = any>(pipeline: any[]): Promise<R[]> {
+    return this.Model.aggregate(pipeline).exec();
+  }
+
+  public getModel(): Model<TDocument> {
+    return this.Model;
   }
 }
 

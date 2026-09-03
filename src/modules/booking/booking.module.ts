@@ -16,6 +16,7 @@ import adminUserModel from '../user/entities/admin-user.entity';
 import customerUserModel from '../user/entities/customer-user.entity';
 import venueModel from '../venue/entities/venue.entity';
 import { WalletModule } from '../wallet/wallet.module';
+import { PushNotificationModule } from '../push-notification/push-notification.module';
 import { BookingController } from './booking.controller';
 import { BookingGateway } from './booking.gateway';
 import { BookingService } from './booking.service';
@@ -30,6 +31,7 @@ import bookingModel from './entities/booking.entity';
     couponModel,
     paymentModel,
     WalletModule,
+    PushNotificationModule,
   ],
   controllers: [BookingController],
   providers: [
@@ -46,6 +48,6 @@ import bookingModel from './entities/booking.entity';
     AdminUserRepo,
     RedisService,
   ],
-  exports: [BookingGateway],
+  exports: [BookingGateway, BookingService],
 })
 export class BookingModule { }
