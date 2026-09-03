@@ -93,6 +93,17 @@
 - Priority drag-and-drop reordering, scheduling (start/end dates), and real-time refresh broadcasting.
 - Public contact and advertising inquiry form with admin lifecycle status tracking.
 
+### 📊 Executive Reports & Business Intelligence
+- Comprehensive operational and financial reports across 9 analytical dimensions.
+- Revenue breakdown (gross vs net, cash vs card vs wallet, deposit splits).
+- Pitch occupancy and 24-hour demand utilization curves.
+- Customer retention, booking conversion funnel, repeat booking frequency, and LTV.
+- Automated owner commission calculations, net payouts, and dispute auditing.
+
+### 🔔 Mobile Push Notifications
+- Built-in Expo Push Notification engine with automatic device token management for both authenticated users and anonymous guest devices.
+- Event-driven push notifications for booking confirmations, slot releases, payment reminders, and promotional campaigns.
+
 ---
 
 ## 🏗️ System Architecture Flow
@@ -412,6 +423,19 @@ All REST routes are prefixed with `/api/v1`.
 | `POST` | `/advertisements` | Staff / Owner | Create banner advertisement with image upload |
 | `PATCH` | `/advertisements/reorder` | Staff / Owner | Bulk reorder advertisement priorities |
 | `PATCH` | `/advertisements/:id/status` | Staff / Owner | Toggle status (`active`, `inactive`, `scheduled`) |
+
+### 8. Executive Reports & Analytics (`/api/v1/reports`)
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/reports/overview` | Staff / Owner | Consolidated executive KPI cards, revenue & utilization trends |
+| `GET` | `/reports/revenue` | Staff / Owner | Gross vs net revenue, payment method & deposit breakdown |
+| `GET` | `/reports/refunds-wallet` | Staff / Owner | Refund rates, customer wallet liability & audit ledger |
+| `GET` | `/reports/no-shows` | Staff / Owner | Unattended match rates & financial loss analysis |
+| `GET` | `/reports/coupons` | Staff / Owner | Coupon redemption rates & promotional ROI |
+| `GET` | `/reports/ads` | Staff / Owner | Advertiser spend, CTR metrics & placement utilization |
+| `GET` | `/reports/venue-utilization` | Staff / Owner | Court occupancy rates & 24-hour demand curves |
+| `GET` | `/reports/customers-funnel` | Staff / Owner | Booking funnel conversion, retention & customer LTV |
+| `GET` | `/reports/payouts-disputes` | Staff / Owner | Pitch owner payouts, commission fees & dispute summary |
 
 ---
 
