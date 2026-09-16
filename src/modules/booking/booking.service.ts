@@ -29,12 +29,7 @@ import { calculateCouponDiscount } from '../coupon/utils/coupon-calculator.utils
 import { UserDocument } from '../user/entities/user.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { BookingGateway } from './booking.gateway';
-import {
-  CreateBookingDto,
-  CreatePaymentDto,
-  QueryBookingDto,
-  UpdateBookingStatusDto,
-} from './dto/booking.dto';
+import { CreateBookingDto, CreatePaymentDto, QueryBookingDto, UpdateBookingStatusDto, } from './dto/booking.dto';
 import * as crypto from 'crypto';
 import { PushNotificationService } from '../push-notification/push-notification.service';
 import { randomUUID } from 'crypto';
@@ -55,6 +50,7 @@ function isDuplicateKeyError(error: any): boolean {
 
 const HOLD_DURATION_MINUTES = 15;
 const CANCELLATION_DEADLINE_HOURS = 24;
+
 
 @Injectable()
 export class BookingService implements OnModuleInit {
