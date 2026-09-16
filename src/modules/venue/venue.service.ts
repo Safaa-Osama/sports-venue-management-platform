@@ -55,7 +55,11 @@ export class VenueService {
       filter,
       projection: {
         venueName: 1,
+        venueNameAr: 1,
+        venueNameEn: 1,
         address: 1,
+        addressAr: 1,
+        addressEn: 1,
         sportsType: 1,
         amenities: 1,
         startWorkingHours: 1,
@@ -123,8 +127,12 @@ export class VenueService {
   ) {
     const {
       venueName,
+      venueNameAr,
+      venueNameEn,
       sportsType,
       address,
+      addressAr,
+      addressEn,
       locationAlt,
       locationLang,
       amenities,
@@ -139,8 +147,11 @@ export class VenueService {
       isActive,
     } = body;
 
+    const resolvedVenueName = venueName || venueNameEn || venueNameAr || '';
+    const resolvedAddress = address || addressEn || addressAr || '';
+
     const existingVenue = await this.venueRepo.findOne({
-      filter: { venueName, isDeleted: { $ne: true } },
+      filter: { venueName: resolvedVenueName, isDeleted: { $ne: true } },
     });
     if (existingVenue) {
       throw new BadRequestException('Venue name already exists');
@@ -157,7 +168,7 @@ export class VenueService {
 
     let uploadedImages: string[] = [];
     if (images && images.length > 0) {
-      const sanitizedFolder = venueName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const sanitizedFolder = resolvedVenueName.replace(/[^a-zA-Z0-9_-]/g, '_');
       uploadedImages = await this.s3service.uploadFiles({
         files: images,
         path: `venue/gallery/${sanitizedFolder}`,
@@ -167,9 +178,13 @@ export class VenueService {
     const allImages = [...initialImages, ...uploadedImages];
 
     const venue = await this.venueRepo.create({
-      venueName,
+      venueName: resolvedVenueName,
+      venueNameAr: venueNameAr || (venueName && !venueNameEn ? venueName : undefined),
+      venueNameEn: venueNameEn || resolvedVenueName,
       sportsType,
-      address,
+      address: resolvedAddress,
+      addressAr: addressAr || (address && !addressEn ? address : undefined),
+      addressEn: addressEn || resolvedAddress,
       locationAlt,
       locationLang,
       images: allImages,
@@ -220,8 +235,12 @@ export class VenueService {
 
     const {
       venueName,
+      venueNameAr,
+      venueNameEn,
       sportsType,
       address,
+      addressAr,
+      addressEn,
       locationAlt,
       locationLang,
       amenities,
@@ -240,10 +259,14 @@ export class VenueService {
 
     const updateData: Record<string, any> = { updatedBy: user._id };
 
-    if (venueName && venueName !== venue.venueName) {
+    if (venueNameAr !== undefined) updateData.venueNameAr = venueNameAr;
+    if (venueNameEn !== undefined) updateData.venueNameEn = venueNameEn;
+
+    const newVenueName = venueName || venueNameEn || venueNameAr;
+    if (newVenueName && newVenueName !== venue.venueName) {
       const existingVenue = await this.venueRepo.findOne({
         filter: {
-          venueName,
+          venueName: newVenueName,
           _id: { $ne: id },
           isDeleted: { $ne: true },
         },
@@ -251,10 +274,16 @@ export class VenueService {
       if (existingVenue) {
         throw new ConflictException('Venue name already exists');
       }
-      updateData.venueName = venueName;
+      updateData.venueName = newVenueName;
     }
 
-    if (address !== undefined) updateData.address = address;
+    if (addressAr !== undefined) updateData.addressAr = addressAr;
+    if (addressEn !== undefined) updateData.addressEn = addressEn;
+    if (address !== undefined) {
+      updateData.address = address;
+    } else if (addressEn !== undefined || addressAr !== undefined) {
+      updateData.address = addressEn || addressAr;
+    }
     if (sportsType !== undefined) updateData.sportsType = sportsType;
     if (locationAlt !== undefined) updateData.locationAlt = locationAlt;
     if (locationLang !== undefined) updateData.locationLang = locationLang;

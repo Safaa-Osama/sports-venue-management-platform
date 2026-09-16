@@ -13,12 +13,14 @@ import {
 } from './dto/coupon.dto';
 import { UserRepo } from 'src/common/repositories/user-repo';
 import { calculateCouponDiscount } from './utils/coupon-calculator.utils';
+import { PushNotificationService } from '../push-notification/push-notification.service';
 
 @Injectable()
 export class CouponService {
   constructor(
     private readonly couponRepo: CouponRepo,
     private readonly userRepo: UserRepo,
+    private readonly pushService: PushNotificationService,
   ) { }
 
   async getAllCoupons(query?: { search?: string; status?: string }) {
@@ -83,6 +85,28 @@ export class CouponService {
       usesCount,
       isActive,
     });
+
+    if (isActive !== false) {
+      const discountText =
+        discountType === CouponEnum.percentage
+          ? `${discount}%`
+          : `${discount} EGP`;
+
+      this.pushService
+        .broadcastToAllCustomers(
+          'NEW_COUPON',
+          {
+            couponCode: normalizedCode,
+            discount: discountText,
+          },
+          {
+            route: '/',
+            couponCode: normalizedCode,
+            deepLinkType: 'promo',
+          },
+        )
+        .catch(() => {});
+    }
 
     return coupon;
   }

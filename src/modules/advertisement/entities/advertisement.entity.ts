@@ -19,8 +19,20 @@ export class Advertisement {
   @Prop({ type: String, required: true, trim: true, maxlength: 200 })
   title: string;
 
+  @Prop({ type: String, trim: true, maxlength: 200, default: null })
+  titleAr?: string;
+
+  @Prop({ type: String, trim: true, maxlength: 200, default: null })
+  titleEn?: string;
+
   @Prop({ type: String, trim: true, maxlength: 1000, default: '' })
   description: string;
+
+  @Prop({ type: String, trim: true, maxlength: 1000, default: null })
+  descriptionAr?: string;
+
+  @Prop({ type: String, trim: true, maxlength: 1000, default: null })
+  descriptionEn?: string;
 
   @Prop({ type: String, required: true, trim: true })
   image: string;

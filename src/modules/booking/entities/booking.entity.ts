@@ -59,8 +59,17 @@ export class Booking {
   @Prop({ type: String, required: true })
   qrCode: string;
 
+  @Prop({ type: Types.ObjectId, ref: 'Coupon' })
+  couponId?: Types.ObjectId;
+
   @Prop({ type: String })
   couponCode?: string;
+
+  @Prop({ type: String })
+  discountType?: string;
+
+  @Prop({ type: Number })
+  discountValue?: number;
 
   @Prop({ type: Number, default: 0 })
   discountAmount?: number;
@@ -100,6 +109,9 @@ export class Booking {
 
   @Prop({ type: Date })
   cancelledAt?: Date;
+
+  @Prop({ type: Types.ObjectId, ref: 'AdminUser', index: true })
+  cashCollectedBy?: Types.ObjectId;
 }
 
 export const BookingSchema = SchemaFactory.createForClass(Booking);

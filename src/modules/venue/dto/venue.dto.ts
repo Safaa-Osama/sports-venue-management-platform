@@ -141,21 +141,53 @@ export class CustomDatePriceDto {
 }
 
 export class CreateVenueDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Name of the sports venue / stadium',
     example: 'Camp Nou Arena',
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  venueName: string;
+  venueName?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
+    description: 'Venue name in Arabic',
+    example: 'ملعب الأبطال الدولي',
+  })
+  @IsOptional()
+  @IsString()
+  venueNameAr?: string;
+
+  @ApiPropertyOptional({
+    description: 'Venue name in English',
+    example: 'Champions International Arena',
+  })
+  @IsOptional()
+  @IsString()
+  venueNameEn?: string;
+
+  @ApiPropertyOptional({
     description: 'Physical address of the venue',
     example: '123 Stadium Road, District 5, Cairo',
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  address: string;
+  address?: string;
+
+  @ApiPropertyOptional({
+    description: 'Venue address in Arabic',
+    example: 'التجمع الخامس، القاهرة الجديدة',
+  })
+  @IsOptional()
+  @IsString()
+  addressAr?: string;
+
+  @ApiPropertyOptional({
+    description: 'Venue address in English',
+    example: '5th Settlement, New Cairo',
+  })
+  @IsOptional()
+  @IsString()
+  addressEn?: string;
 
   @ApiProperty({
     description: 'List of sports supported at this venue',
@@ -337,7 +369,11 @@ export class GetVenuesQueryDto {
 
 @AtLeastOne([
   'venueName',
+  'venueNameAr',
+  'venueNameEn',
   'address',
+  'addressAr',
+  'addressEn',
   'sportsType',
   'locationAlt',
   'locationLang',

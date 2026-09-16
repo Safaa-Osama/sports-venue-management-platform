@@ -116,13 +116,33 @@ export class AdvertisementService {
       throw new BadRequestException('Advertisement banner image is required');
     }
 
-    const { startDate, endDate, status, ...restDto } = body;
+    const {
+      startDate,
+      endDate,
+      status,
+      title,
+      titleAr,
+      titleEn,
+      description,
+      descriptionAr,
+      descriptionEn,
+      ...restDto
+    } = body;
     const computedStatus = this.computeLifecycleStatus(
       startDate,
       endDate,
       status,
     );
     let uploadedImageKey: string | undefined;
+
+    const resolvedTitle = title || titleEn || titleAr;
+    if (!resolvedTitle) {
+      throw new BadRequestException('Advertisement title is required');
+    }
+    const resolvedDescription =
+      description !== undefined
+        ? description
+        : descriptionEn || descriptionAr || '';
 
     try {
       uploadedImageKey = await this.s3Service.uploadFile({
@@ -132,6 +152,14 @@ export class AdvertisementService {
 
       const adData: Partial<AdvertisementDocument> = {
         ...restDto,
+        title: resolvedTitle,
+        titleAr: titleAr || (title && !titleEn ? title : undefined),
+        titleEn: titleEn || resolvedTitle,
+        description: resolvedDescription,
+        descriptionAr:
+          descriptionAr ||
+          (description && !descriptionEn ? description : undefined),
+        descriptionEn: descriptionEn || resolvedDescription,
         image: uploadedImageKey,
         status: computedStatus,
         startDate: startDate ? new Date(startDate) : undefined,
@@ -208,6 +236,25 @@ export class AdvertisementService {
       ...dto,
       ...(computedStatus !== undefined ? { status: computedStatus } : {}),
     };
+
+    if (
+      dto.title !== undefined ||
+      dto.titleEn !== undefined ||
+      dto.titleAr !== undefined
+    ) {
+      updatePayload.title =
+        dto.title || dto.titleEn || dto.titleAr || ad.title;
+    }
+    if (
+      dto.description !== undefined ||
+      dto.descriptionEn !== undefined ||
+      dto.descriptionAr !== undefined
+    ) {
+      updatePayload.description =
+        dto.description !== undefined
+          ? dto.description
+          : dto.descriptionEn || dto.descriptionAr || '';
+    }
 
     let newlyUploadedKey: string | undefined;
 

@@ -38,6 +38,10 @@ export class QueryReportDto {
   venueId?: string;
 
   @IsOptional()
+  @IsString()
+  staffId?: string;
+
+  @IsOptional()
   @IsEnum(ReportIntervalEnum)
   interval?: ReportIntervalEnum = ReportIntervalEnum.day;
 

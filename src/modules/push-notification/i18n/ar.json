@@ -1,0 +1,58 @@
+{
+  "BOOKING_CONFIRMED": {
+    "title": "حجزك اتأكد خلاص! ✅",
+    "body": "حجزك في {venueName} يوم {date} الساعة {time} اتأكد بنجاح. كود حجزك: {bookingCode}"
+  },
+  "BOOKING_CANCELLED": {
+    "title": "تم إلغاء الحجز ❌",
+    "body": "حجزك رقم {bookingCode} في {venueName} اتلغى. {refundInfo}"
+  },
+  "NEW_BOOKING_REQUEST": {
+    "title": "حجز جديد وصلك! 📋",
+    "body": "فيه حجز جديد في {venueName} يوم {date} الساعة {time} بواسطة {customerName}. كود: {bookingCode}"
+  },
+  "MATCH_REMINDER_KICKOFF": {
+    "title": "فاضل ساعتين على الماتش! ⏳",
+    "body": "ميعاد الحجز في ملعب {venueName} الساعة {time}. كود الدخول: {bookingCode} 🎫"
+  },
+  "MATCH_REMINDER_MORNING": {
+    "title": "ماتشك النهاردة يا كابتن! ⚽",
+    "body": "حجزك في ملعب {venueName} الساعة {time}. جهّز كرتك وفرقتك! 🏆"
+  },
+  "MATCH_REMINDER_CANCELLED": {
+    "title": "تم إلغاء التذكير بالماتش ❌",
+    "body": "حجزك في ملعب {venueName} تم إلغاؤه أو تغييره."
+  },
+  "NEW_PROMO": {
+    "title": "عرض خاص جديد! 🎁",
+    "body": "{promoTitle} - احجز الآن واستمتع بخصم إضافي على ملاعبك المفضلة!"
+  },
+  "NEW_COUPON": {
+    "title": "كود خصم جديد! 🏷️",
+    "body": "استخدم الكوبون {couponCode} للحصول على خصم بقيمة {discount} على حجزك القادم!"
+  },
+  "PAYMENT_APPROVED": {
+    "title": "الدفع اتقبل وحجزك اتثبت! 💳",
+    "body": "إيصال الدفع لحجزك رقم {bookingCode} اتقبل بنجاح وتأكد الحجز."
+  },
+  "PAYMENT_REJECTED": {
+    "title": "إيصال الدفع ماتقبلش ⚠️",
+    "body": "إيصال الدفع لحجزك رقم {bookingCode} اترفض: {reason}"
+  },
+  "USER_SUSPENDED": {
+    "title": "تنبيه بشأن حسابك ⚠️",
+    "body": "يا {userName}، تم إيقاف حسابك مؤقتاً. السبب: {reason}"
+  },
+  "USER_ON_HOLD": {
+    "title": "حسابك قيد المراجعة ℹ️",
+    "body": "يا {userName}، تم وضع حسابك قيد المراجعة. السبب: {reason}"
+  },
+  "USER_ACTIVE": {
+    "title": "تم تفعيل حسابك بنجاح! 🟢",
+    "body": "أهلاً بك يا {userName}، تم تفعيل حسابك بالكامل ويمكنك حجز الملاعب بشكل طبيعي."
+  },
+  "PITCH_REOPENED": {
+    "title": "الملعب فتح من تاني وجاهز للحجز! 🏟️",
+    "body": "{venueName} رجع يشتغل بعد الصيانة، تقدر تحجز حجزتك دلوقتي!"
+  }
+}

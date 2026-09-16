@@ -73,13 +73,18 @@ export class ReportsService {
   }
 
   // ===========================================================================
-  // 1. REVENUE & PAYMENTS REPORT
+  // 1. REVENUE & PAYMENTS REPORT (ACCRUAL MODEL + COMPREHENSIVE BREAKDOWN)
   // ===========================================================================
   async getRevenueReport(query: QueryReportDto) {
     const { start, end } = this.parseDateRange(query);
-    const venueObjectId = query.venueId && Types.ObjectId.isValid(query.venueId)
-      ? new Types.ObjectId(query.venueId)
-      : null;
+    const venueObjectId =
+      query.venueId && Types.ObjectId.isValid(query.venueId)
+        ? new Types.ObjectId(query.venueId)
+        : null;
+    const staffObjectId =
+      query.staffId && Types.ObjectId.isValid(query.staffId)
+        ? new Types.ObjectId(query.staffId)
+        : null;
 
     const bookingMatch: any = {
       date: { $gte: start, $lte: end },
@@ -91,6 +96,13 @@ export class ReportsService {
     const paymentMatch: any = {
       createdAt: { $gte: start, $lte: end },
     };
+    if (venueObjectId) {
+      const venueBookings = await this.bookingRepo.find({
+        filter: { venueId: venueObjectId },
+      });
+      const vBookingIds = venueBookings.map((b) => b._id);
+      paymentMatch.bookingId = { $in: vBookingIds };
+    }
 
     // 1.1 Payment Method Breakdown & Totals (from Payment Collection)
     const paymentMethodStats = await this.paymentRepo.aggregate([
@@ -101,18 +113,28 @@ export class ReportsService {
           totalAmount: {
             $sum: {
               $cond: [
-                { $in: ['$status', [PaymentStatusEnum.paid, PaymentStatusEnum.partially_paid]] },
+                {
+                  $in: [
+                    '$status',
+                    [PaymentStatusEnum.paid, PaymentStatusEnum.partially_paid],
+                  ],
+                },
                 '$amount',
                 0,
               ],
             },
           },
-          totalRefunded: { $sum: '$refundedAmount' },
+          totalRefunded: { $sum: { $ifNull: ['$refundedAmount', 0] } },
           count: { $sum: 1 },
           paidCount: {
             $sum: {
               $cond: [
-                { $in: ['$status', [PaymentStatusEnum.paid, PaymentStatusEnum.partially_paid]] },
+                {
+                  $in: [
+                    '$status',
+                    [PaymentStatusEnum.paid, PaymentStatusEnum.partially_paid],
+                  ],
+                },
                 1,
                 0,
               ],
@@ -125,24 +147,52 @@ export class ReportsService {
     let cardRevenue = 0;
     let cashRevenue = 0;
     let walletRevenue = 0;
-    let totalRefunds = 0;
+    let cardRefunds = 0;
     let totalCollectedPayments = 0;
 
     paymentMethodStats.forEach((p) => {
-      const net = Math.max(0, p.totalAmount - (p.totalRefunded || 0));
-      totalRefunds += p.totalRefunded || 0;
       totalCollectedPayments += p.totalAmount || 0;
-      if (p._id === PaymentMethodEnum.paymob) cardRevenue = p.totalAmount;
-      else if (p._id === PaymentMethodEnum.cash) cashRevenue = p.totalAmount;
-      else if (p._id === PaymentMethodEnum.wallet) walletRevenue = p.totalAmount;
+      if (p._id === PaymentMethodEnum.paymob) {
+        cardRevenue = p.totalAmount;
+        cardRefunds = p.totalRefunded || 0;
+      } else if (p._id === PaymentMethodEnum.cash) {
+        cashRevenue = p.totalAmount;
+      } else if (p._id === PaymentMethodEnum.wallet) {
+        walletRevenue = p.totalAmount;
+      }
     });
 
-    const totalRevenueSum = cardRevenue + cashRevenue + walletRevenue;
-    const cardPct = totalRevenueSum > 0 ? Number(((cardRevenue / totalRevenueSum) * 100).toFixed(1)) : 0;
-    const cashPct = totalRevenueSum > 0 ? Number(((cashRevenue / totalRevenueSum) * 100).toFixed(1)) : 0;
-    const walletPct = totalRevenueSum > 0 ? Number(((walletRevenue / totalRevenueSum) * 100).toFixed(1)) : 0;
+    // 1.2 Wallet Refunds and Cash Payouts from Wallet
+    const walletActivity = await this.walletTransactionRepo.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: start, $lte: end },
+          status: 'SUCCESS',
+        },
+      },
+      {
+        $group: {
+          _id: '$type',
+          totalAmount: { $sum: '$amount' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
 
-    // 1.2 Bookings Financial Aggregation (Gross vs Net vs Discounts)
+    let refundsWallet = 0;
+    let refundsCashPayout = 0;
+
+    walletActivity.forEach((w) => {
+      if (w._id === TransactionTypeEnum.BOOKING_REFUND) {
+        refundsWallet = w.totalAmount;
+      } else if (w._id === TransactionTypeEnum.DEDUCTION) {
+        refundsCashPayout = w.totalAmount;
+      }
+    });
+
+    const totalRefunds = refundsWallet + refundsCashPayout + cardRefunds;
+
+    // 1.3 Bookings Financial Aggregation (Gross vs Net vs Discounts)
     const bookingFinancials = await this.bookingRepo.aggregate([
       { $match: bookingMatch },
       {
@@ -190,7 +240,12 @@ export class ReportsService {
                 {
                   $and: [
                     { $ne: ['$status', BookingStatusEnum.cancelled] },
-                    { $eq: ['$paymentStatus', PaymentStatusEnum.partially_paid] },
+                    {
+                      $eq: [
+                        '$paymentStatus',
+                        PaymentStatusEnum.partially_paid,
+                      ],
+                    },
                   ],
                 },
                 { $ifNull: ['$remainingAmount', 0] },
@@ -200,17 +255,29 @@ export class ReportsService {
           },
           depositBookingsCount: {
             $sum: {
-              $cond: [{ $eq: ['$paymentStatus', PaymentStatusEnum.partially_paid] }, 1, 0],
+              $cond: [
+                { $eq: ['$paymentStatus', PaymentStatusEnum.partially_paid] },
+                1,
+                0,
+              ],
             },
           },
           fullPaidBookingsCount: {
             $sum: {
-              $cond: [{ $eq: ['$paymentStatus', PaymentStatusEnum.paid] }, 1, 0],
+              $cond: [
+                { $eq: ['$paymentStatus', PaymentStatusEnum.paid] },
+                1,
+                0,
+              ],
             },
           },
           payAtVenueBookingsCount: {
             $sum: {
-              $cond: [{ $eq: ['$paymentStatus', PaymentStatusEnum.pay_at_venue] }, 1, 0],
+              $cond: [
+                { $eq: ['$paymentStatus', PaymentStatusEnum.pay_at_venue] },
+                1,
+                0,
+              ],
             },
           },
           cancelledBookingsCount: {
@@ -236,10 +303,134 @@ export class ReportsService {
       totalBookingsCount: 0,
     };
 
-    const grossRevenue = bf.totalGross;
-    const netRevenue = Math.max(0, grossRevenue - totalRefunds);
+    const grossRevenue = bf.totalBasePrice > 0 ? bf.totalBasePrice : bf.totalGross;
+    const discountSavings = bf.totalDiscounts;
+    const netRevenue = Math.max(0, grossRevenue - discountSavings - totalRefunds);
+    const physicalCashInflow = cardRevenue + cashRevenue;
 
-    // 1.3 Revenue Time-Series (by Interval)
+    const totalRevenueSum = cardRevenue + cashRevenue + walletRevenue;
+    const cardPct =
+      totalRevenueSum > 0
+        ? Number(((cardRevenue / totalRevenueSum) * 100).toFixed(1))
+        : 0;
+    const cashPct =
+      totalRevenueSum > 0
+        ? Number(((cashRevenue / totalRevenueSum) * 100).toFixed(1))
+        : 0;
+    const walletPct =
+      totalRevenueSum > 0
+        ? Number(((walletRevenue / totalRevenueSum) * 100).toFixed(1))
+        : 0;
+
+    // 1.4 Staff Cash Collection Breakdown & Details
+    const staffCashAggregation = await this.paymentRepo.aggregate([
+      {
+        $match: {
+          ...paymentMatch,
+          paymentMethod: PaymentMethodEnum.cash,
+          status: PaymentStatusEnum.paid,
+        },
+      },
+      {
+        $group: {
+          _id: '$collectedBy',
+          totalCashCollected: { $sum: '$amount' },
+          transactionCount: { $sum: 1 },
+        },
+      },
+      {
+        $lookup: {
+          from: 'adminusers',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'staffUser',
+        },
+      },
+      {
+        $project: {
+          staffId: { $ifNull: ['$_id', null] },
+          totalCashCollected: 1,
+          transactionCount: 1,
+          staffName: {
+            $ifNull: [
+              { $arrayElemAt: ['$staffUser.userName', 0] },
+              'Unassigned / Gate Reception',
+            ],
+          },
+          staffEmail: {
+            $ifNull: [{ $arrayElemAt: ['$staffUser.email', 0] }, '—'],
+          },
+        },
+      },
+      { $sort: { totalCashCollected: -1 } },
+    ]);
+
+    const cashDetailMatch: any = {
+      ...paymentMatch,
+      paymentMethod: PaymentMethodEnum.cash,
+      status: PaymentStatusEnum.paid,
+    };
+    if (staffObjectId) {
+      cashDetailMatch.collectedBy = staffObjectId;
+    }
+
+    const staffCashTransactions = await this.paymentRepo.aggregate([
+      { $match: cashDetailMatch },
+      { $sort: { createdAt: -1 } },
+      { $limit: 50 },
+      {
+        $lookup: {
+          from: 'adminusers',
+          localField: 'collectedBy',
+          foreignField: '_id',
+          as: 'staffUser',
+        },
+      },
+      {
+        $lookup: {
+          from: 'customerusers',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'customer',
+        },
+      },
+      {
+        $lookup: {
+          from: 'bookings',
+          localField: 'bookingId',
+          foreignField: '_id',
+          as: 'booking',
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          transactionId: 1,
+          amount: 1,
+          status: 1,
+          paidAt: 1,
+          createdAt: 1,
+          staffId: '$collectedBy',
+          staffName: {
+            $ifNull: [
+              { $arrayElemAt: ['$staffUser.userName', 0] },
+              'Unassigned / Gate Reception',
+            ],
+          },
+          customerName: {
+            $ifNull: [{ $arrayElemAt: ['$customer.userName', 0] }, 'Customer'],
+          },
+          customerPhone: {
+            $ifNull: [{ $arrayElemAt: ['$customer.phone', 0] }, '—'],
+          },
+          bookingCode: {
+            $ifNull: [{ $arrayElemAt: ['$booking.bookingCode', 0] }, '—'],
+          },
+        },
+      },
+    ]);
+
+    // 1.5 Revenue Time-Series (by Interval)
     const dateFormat = this.getDateFormat(query.interval);
     const revenueTimeline = await this.bookingRepo.aggregate([
       { $match: bookingMatch },
@@ -279,7 +470,7 @@ export class ReportsService {
       { $sort: { _id: 1 } },
     ]);
 
-    // 1.4 Pending / Uncollected Deposits Table
+    // 1.6 Pending / Uncollected Deposits Table
     const pendingDeposits = await this.bookingRepo.aggregate([
       {
         $match: {
@@ -327,7 +518,7 @@ export class ReportsService {
       },
     ]);
 
-    // 1.5 Paymob Card Settlement Reconciliation
+    // 1.7 Paymob Card Settlement Reconciliation
     const paymobReconciliation = await this.paymentRepo.aggregate([
       {
         $match: {
@@ -348,21 +539,30 @@ export class ReportsService {
     return {
       summary: {
         grossRevenue,
+        discountSavings,
         netRevenue,
-        totalCollectedPayments,
         totalRefunds,
-        totalDiscountsGiven: bf.totalDiscounts,
+        refundsWallet,
+        refundsCashPayout,
+        cardRefunds,
+        totalCollectedPayments,
         cardRevenue,
         cashRevenue,
         walletRevenue,
+        physicalCashInflow,
         cardPct,
         cashPct,
         walletPct,
         depositBookingsCount: bf.depositBookingsCount,
         fullPaidBookingsCount: bf.fullPaidBookingsCount,
         payAtVenueBookingsCount: bf.payAtVenueBookingsCount,
+        cancelledBookingsCount: bf.cancelledBookingsCount,
         outstandingDepositBalance: bf.totalRemainingAmount,
         totalBookings: bf.totalBookingsCount,
+        totalCashCollectedAllStaff: staffCashAggregation.reduce(
+          (acc, curr) => acc + (curr.totalCashCollected || 0),
+          0,
+        ),
       },
       series: [
         {
@@ -390,6 +590,8 @@ export class ReportsService {
         docs: pendingDeposits,
         total: bf.depositBookingsCount,
       },
+      staffCashCollections: staffCashAggregation,
+      staffCashTransactions,
     };
   }
 

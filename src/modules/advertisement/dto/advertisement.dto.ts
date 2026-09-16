@@ -9,14 +9,34 @@ import { AtLeastOne } from 'src/common/decorator/AtLeastOne.decorator';
 
 export class CreateAdvertisementDto {
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   @MaxLength(200)
-  title: string;
+  title?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  titleAr?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  titleEn?: string;
 
   @IsString()
   @IsOptional()
   @MaxLength(1000)
   description?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(1000)
+  descriptionAr?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(1000)
+  descriptionEn?: string;
 
   @IsUrl(
     { require_protocol: true, protocols: ['http', 'https'] },
@@ -81,7 +101,25 @@ export class CreateAdvertisementDto {
   paymentStatus?: 'paid' | 'pending' | 'failed';
 }
 
-@AtLeastOne(["title", "description", "linkUrl", "position", "status", "startDate", "endDate", "displayDuration", "durationMinutes", "priority", "advertiserName", "cost", "paymentStatus"])
+@AtLeastOne([
+  "title",
+  "titleAr",
+  "titleEn",
+  "description",
+  "descriptionAr",
+  "descriptionEn",
+  "linkUrl",
+  "position",
+  "status",
+  "startDate",
+  "endDate",
+  "displayDuration",
+  "durationMinutes",
+  "priority",
+  "advertiserName",
+  "cost",
+  "paymentStatus",
+])
 export class UpdateAdvertisementDto extends PartialType(
   CreateAdvertisementDto,
 ) {}

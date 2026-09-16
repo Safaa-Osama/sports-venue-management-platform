@@ -1,8 +1,12 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
 export type NotificationEventType =
   | 'MATCH_REMINDER_MORNING'
   | 'MATCH_REMINDER_KICKOFF'
   | 'MATCH_REMINDER_CANCELLED'
   | 'NEW_PROMO'
+  | 'NEW_COUPON'
   | 'USER_SUSPENDED'
   | 'USER_ON_HOLD'
   | 'USER_ACTIVE'
@@ -33,7 +37,6 @@ export function formatTime12h(time: number | string, locale: string = 'ar'): str
     minute = Math.round((time - hour) * 60);
   } else {
     const trimmed = String(time).trim();
-    // If already in 12h format (AM/PM or ص/م), return as is
     if (/[ap]\.?m|صباح|مساء|[صم]/i.test(trimmed)) {
       return trimmed;
     }
@@ -52,7 +55,7 @@ export function formatTime12h(time: number | string, locale: string = 'ar'): str
   return `${hour12}${minuteStr} ${period}`;
 }
 
-export const PUSH_TEMPLATES: Record<
+const FALLBACK_TEMPLATES: Record<
   NotificationEventType,
   { ar: LocalizedTemplate; en: LocalizedTemplate }
 > = {
@@ -94,6 +97,16 @@ export const PUSH_TEMPLATES: Record<
     en: {
       title: 'New Special Offer! 🎁',
       body: '{promoTitle} - Book now and enjoy special discounts on your favorite pitches!',
+    },
+  },
+  NEW_COUPON: {
+    ar: {
+      title: 'كود خصم جديد! 🏷️',
+      body: 'استخدم الكوبون {couponCode} للحصول على خصم بقيمة {discount} على حجزك القادم!',
+    },
+    en: {
+      title: 'New Discount Code! 🏷️',
+      body: 'Use coupon code {couponCode} to get a {discount} discount on your next booking!',
     },
   },
   USER_SUSPENDED: {
@@ -189,7 +202,78 @@ export const PUSH_TEMPLATES: Record<
 };
 
 /**
- * Replace placeholders like {venueName}, {time}, {date} with actual values.
+ * In-memory cache for loaded i18n JSON templates
+ */
+const templateCache: { ar?: Record<string, LocalizedTemplate>; en?: Record<string, LocalizedTemplate> } = {};
+
+/**
+ * Load template JSON from disk with multiple lookup locations and caching.
+ * Can be edited in `src/modules/push-notification/i18n/{ar,en}.json` at any time.
+ */
+export function loadLocaleTemplates(locale: 'ar' | 'en'): Record<string, LocalizedTemplate> {
+  const candidatePaths = [
+    path.join(__dirname, 'i18n', `${locale}.json`),
+    path.join(__dirname, '..', 'src', 'modules', 'push-notification', 'i18n', `${locale}.json`),
+    path.join(process.cwd(), 'src', 'modules', 'push-notification', 'i18n', `${locale}.json`),
+    path.join(process.cwd(), 'dist', 'modules', 'push-notification', 'i18n', `${locale}.json`),
+  ];
+
+  for (const filePath of candidatePaths) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const parsed = JSON.parse(content);
+        templateCache[locale] = parsed;
+        return parsed;
+      }
+    } catch {
+      // try next path
+    }
+  }
+
+  if (templateCache[locale]) {
+    return templateCache[locale]!;
+  }
+
+  const fallback: Record<string, LocalizedTemplate> = {};
+  for (const [key, value] of Object.entries(FALLBACK_TEMPLATES)) {
+    fallback[key] = value[locale];
+  }
+  templateCache[locale] = fallback;
+  return fallback;
+}
+
+export function getTemplate(
+  eventType: NotificationEventType,
+  locale: string = 'ar',
+): LocalizedTemplate {
+  const langKey: 'ar' | 'en' = locale?.toLowerCase().startsWith('en') ? 'en' : 'ar';
+  const templates = loadLocaleTemplates(langKey);
+  if (templates[eventType]) {
+    return templates[eventType];
+  }
+  const arTemplates = loadLocaleTemplates('ar');
+  if (arTemplates[eventType]) {
+    return arTemplates[eventType];
+  }
+  return FALLBACK_TEMPLATES[eventType]?.[langKey] || FALLBACK_TEMPLATES.BOOKING_CONFIRMED[langKey];
+}
+
+export const PUSH_TEMPLATES: Record<
+  NotificationEventType,
+  { ar: LocalizedTemplate; en: LocalizedTemplate }
+> = new Proxy({} as any, {
+  get: (_, prop: string) => {
+    const eventType = prop as NotificationEventType;
+    return {
+      ar: getTemplate(eventType, 'ar'),
+      en: getTemplate(eventType, 'en'),
+    };
+  },
+});
+
+/**
+ * Replace placeholders like {venueName}, {time}, {date}, {couponCode}, {discount}, {promoTitle} with actual values.
  * Automatically converts 24h times into 12h format.
  */
 export function renderTemplate(
@@ -198,13 +282,18 @@ export function renderTemplate(
   params: Record<string, string | number> = {},
 ): { title: string; body: string } {
   const langKey = locale?.toLowerCase().startsWith('en') ? 'en' : 'ar';
-  const templateGroup = PUSH_TEMPLATES[eventType] || PUSH_TEMPLATES.BOOKING_CONFIRMED;
-  const template = templateGroup[langKey] || templateGroup.ar;
+  const template = getTemplate(eventType, langKey);
 
   let title = template.title;
   let body = template.body;
 
-  for (const [key, value] of Object.entries(params)) {
+  // Support parameter alias for promos/ads
+  const normalizedParams = { ...params };
+  if (normalizedParams.promoDescription && !normalizedParams.promoTitle) {
+    normalizedParams.promoTitle = normalizedParams.promoDescription;
+  }
+
+  for (const [key, value] of Object.entries(normalizedParams)) {
     const regex = new RegExp(`\\{${key}\\}`, 'g');
     let strVal = String(value ?? '');
     if (key === 'time') {

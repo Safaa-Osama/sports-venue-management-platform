@@ -283,10 +283,12 @@ export class BookingController {
   async updateStatus(
     @Param('id') id: string,
     @Body() updateDto: UpdateBookingStatusDto,
+    @User() user: UserDocument,
   ) {
     const updatedBooking = await this.bookingService.updateStatus(
       id,
       updateDto,
+      user,
     );
     return {
       message: 'Booking status updated successfully',

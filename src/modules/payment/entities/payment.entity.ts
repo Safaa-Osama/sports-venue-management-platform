@@ -56,6 +56,9 @@ export class Payment {
 
   @Prop({ type: String, required: false })
   refundReason?: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'AdminUser', required: false, index: true })
+  collectedBy?: Types.ObjectId;
 }
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);

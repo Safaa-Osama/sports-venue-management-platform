@@ -53,11 +53,23 @@ export class Venue {
   @Prop({ type: String, required: true })
   venueName: string;
 
+  @Prop({ type: String, required: false, trim: true })
+  venueNameAr?: string;
+
+  @Prop({ type: String, required: false, trim: true })
+  venueNameEn?: string;
+
   @Prop({ type: [String], required: true })
   sportsType: string[];
 
   @Prop({ type: String, required: true })
   address: string;
+
+  @Prop({ type: String, required: false, trim: true })
+  addressAr?: string;
+
+  @Prop({ type: String, required: false, trim: true })
+  addressEn?: string;
 
   @Prop({ type: Number, required: true })
   locationAlt: number;

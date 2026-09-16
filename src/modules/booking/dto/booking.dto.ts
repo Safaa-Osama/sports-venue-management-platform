@@ -291,6 +291,22 @@ export class QueryBookingDto {
   @Type(() => Date)
   @IsDate()
   date?: Date;
+
+  @ApiPropertyOptional({
+    description: 'Filter bookings starting from date (YYYY-MM-DD)',
+    example: '2026-08-01',
+  })
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter bookings up to date (YYYY-MM-DD)',
+    example: '2026-08-31',
+  })
+  @IsOptional()
+  @IsString()
+  endDate?: string;
 }
 
 export class UpdateBookingStatusDto {

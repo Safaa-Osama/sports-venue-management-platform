@@ -1,3 +1,5 @@
+import couponModel from '../coupon/entities/coupon.entity';
+import { CouponRepo } from 'src/common/repositories/coupon-repo';
 import { Module } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AdminUserRepo } from 'src/common/repositories/admin-user-repo';
@@ -26,6 +28,7 @@ import { BookingGateway } from '../booking/booking.gateway';
     venueModel,
     customerUserModel,
     adminUserModel,
+    couponModel,
     WalletModule,
     PushNotificationModule,
   ],
@@ -37,6 +40,7 @@ import { BookingGateway } from '../booking/booking.gateway';
     PaymentRepo,
     BookingRepo,
     VenueRepo,
+    CouponRepo,
     TokenService,
     JwtService,
     CustomerUserRepo,

@@ -783,6 +783,9 @@ export class BookingService implements OnModuleInit {
 
         let groupDiscountAmount = 0;
         let groupFinalPrice = totalRawPrice;
+        let appliedCouponId: Types.ObjectId | undefined = undefined;
+        let appliedDiscountType: string | undefined = undefined;
+        let appliedDiscountValue: number | undefined = undefined;
         const normalizedCouponCode = couponCode
           ? couponCode.trim().toUpperCase()
           : undefined;
@@ -818,6 +821,9 @@ export class BookingService implements OnModuleInit {
           );
           groupDiscountAmount = discountResult.discountAmount;
           groupFinalPrice = discountResult.finalPrice;
+          appliedCouponId = coupon._id;
+          appliedDiscountType = coupon.discountType;
+          appliedDiscountValue = coupon.discount;
         }
 
         let allocatedDiscount = 0;
@@ -938,7 +944,10 @@ export class BookingService implements OnModuleInit {
               finalPrice: sCalc.finalPrice,
               paidAmount: 0,
               remainingAmount: sCalc.finalPrice,
+              couponId: appliedCouponId,
               couponCode: normalizedCouponCode,
+              discountType: appliedDiscountType,
+              discountValue: appliedDiscountValue,
               status: BookingStatusEnum.pending,
               paymentStatus: PaymentStatusEnum.unpaid,
               paymentMethod,
@@ -1123,15 +1132,17 @@ export class BookingService implements OnModuleInit {
           for (let i = 0; i < createdBookings.length; i++) {
             const b = createdBookings[i];
             const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
+            const currentPaid = b.paidAmount || 0;
             const bPaid = isDepositOnly
               ? Number(((bookingFinal / (groupFinalPrice || 1)) * amountToPay).toFixed(2))
-              : bookingFinal;
+              : Math.min(bookingFinal, Number((currentPaid + amountToPay).toFixed(2)));
             const bRemaining = Math.max(0, Number((bookingFinal - bPaid).toFixed(2)));
+            const actualPaymentStatus = bRemaining === 0 ? PaymentStatusEnum.paid : targetPaymentStatus;
             await this.bookingRepo.findByIdAndUpdate({
               id: b._id,
               update: {
                 status: BookingStatusEnum.confirmed,
-                paymentStatus: targetPaymentStatus,
+                paymentStatus: actualPaymentStatus,
                 paymentMethod: PaymentMethodEnum.wallet,
                 paidAmount: bPaid,
                 remainingAmount: bRemaining,
@@ -1140,6 +1151,20 @@ export class BookingService implements OnModuleInit {
               options: { session },
             });
           }
+
+          const timestamp = Date.now().toString(36).toUpperCase();
+          const randomStr = randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase();
+          const walletTxId = `WLT-${timestamp}-${randomStr}`;
+          await this.paymentRepo.create({
+            bookingId: createdBookings[0]._id,
+            groupId,
+            userId: user._id,
+            amount: amountToPay,
+            paymentMethod: PaymentMethodEnum.wallet,
+            transactionId: walletTxId,
+            status: PaymentStatusEnum.paid,
+            paidAt: new Date(),
+          });
 
           if (normalizedCouponCode) {
             const coupon = await this.couponRepo.findOne({
@@ -1395,15 +1420,17 @@ export class BookingService implements OnModuleInit {
       for (let i = 0; i < createdBookings.length; i++) {
         const b = createdBookings[i];
         const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
+        const currentPaid = b.paidAmount || 0;
         const bPaid = isDepositOnly
           ? Number(((bookingFinal / (groupFinalPrice || 1)) * amountToPay).toFixed(2))
-          : bookingFinal;
+          : Math.min(bookingFinal, Number((currentPaid + amountToPay).toFixed(2)));
         const bRemaining = Math.max(0, Number((bookingFinal - bPaid).toFixed(2)));
+        const actualPaymentStatus = bRemaining === 0 ? PaymentStatusEnum.paid : targetPaymentStatus;
         const updated = await this.bookingRepo.findByIdAndUpdate({
           id: b._id,
           update: {
             status: BookingStatusEnum.confirmed,
-            paymentStatus: targetPaymentStatus,
+            paymentStatus: actualPaymentStatus,
             paymentMethod: PaymentMethodEnum.wallet,
             paidAmount: bPaid,
             remainingAmount: bRemaining,
@@ -1412,6 +1439,20 @@ export class BookingService implements OnModuleInit {
         });
         if (updated) this.bookingGateway.emitBookingConfirmed(updated);
       }
+
+      const timestamp = Date.now().toString(36).toUpperCase();
+      const randomStr = randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase();
+      const walletTxId = `WLT-${timestamp}-${randomStr}`;
+      await this.paymentRepo.create({
+        bookingId: createdBookings[0]._id,
+        groupId,
+        userId: user._id,
+        amount: amountToPay,
+        paymentMethod: PaymentMethodEnum.wallet,
+        transactionId: walletTxId,
+        status: PaymentStatusEnum.paid,
+        paidAt: new Date(),
+      });
 
       if (normalizedCouponCode) {
         const coupon = await this.couponRepo.findOne({
@@ -1508,35 +1549,48 @@ export class BookingService implements OnModuleInit {
 
     let amountToPay = totalGroupFinalPrice;
     let isDepositOnly = false;
-    const depositConfigured =
-      venue?.minimumDepositAmount !== undefined &&
-      venue?.minimumDepositAmount !== null &&
-      venue.minimumDepositAmount > 0;
-    const minRequiredDeposit = depositConfigured
-      ? Math.min(targetBookings.length * (venue?.minimumDepositAmount ?? 0), totalGroupFinalPrice)
-      : totalGroupFinalPrice;
 
-    if (
-      body.customAmount !== undefined &&
-      body.customAmount !== null &&
-      Number(body.customAmount) > 0
-    ) {
-      const custom = Number(body.customAmount);
-      if (custom < minRequiredDeposit) {
-        throw new BadRequestException(
-          `Payment amount cannot be less than the minimum required deposit of ${minRequiredDeposit} EGP`,
-        );
+    const isPayingRemaining =
+      booking.status === BookingStatusEnum.confirmed &&
+      targetBookings.some((b) => (b.remainingAmount || 0) > 0);
+
+    if (isPayingRemaining) {
+      amountToPay = targetBookings.reduce(
+        (sum, b) => sum + (b.remainingAmount || 0),
+        0,
+      );
+      isDepositOnly = false;
+    } else {
+      const depositConfigured =
+        venue?.minimumDepositAmount !== undefined &&
+        venue?.minimumDepositAmount !== null &&
+        venue.minimumDepositAmount > 0;
+      const minRequiredDeposit = depositConfigured
+        ? Math.min(targetBookings.length * (venue?.minimumDepositAmount ?? 0), totalGroupFinalPrice)
+        : totalGroupFinalPrice;
+
+      if (
+        body.customAmount !== undefined &&
+        body.customAmount !== null &&
+        Number(body.customAmount) > 0
+      ) {
+        const custom = Number(body.customAmount);
+        if (custom < minRequiredDeposit) {
+          throw new BadRequestException(
+            `Payment amount cannot be less than the minimum required deposit of ${minRequiredDeposit} EGP`,
+          );
+        }
+        if (custom > totalGroupFinalPrice) {
+          throw new BadRequestException(
+            `Payment amount cannot exceed the total booking price of ${totalGroupFinalPrice} EGP`,
+          );
+        }
+        amountToPay = custom;
+        isDepositOnly = amountToPay < totalGroupFinalPrice;
+      } else if (depositConfigured) {
+        amountToPay = minRequiredDeposit;
+        isDepositOnly = amountToPay < totalGroupFinalPrice;
       }
-      if (custom > totalGroupFinalPrice) {
-        throw new BadRequestException(
-          `Payment amount cannot exceed the total booking price of ${totalGroupFinalPrice} EGP`,
-        );
-      }
-      amountToPay = custom;
-      isDepositOnly = amountToPay < totalGroupFinalPrice;
-    } else if (depositConfigured) {
-      amountToPay = minRequiredDeposit;
-      isDepositOnly = amountToPay < totalGroupFinalPrice;
     }
 
     const activeCouponCode = couponCode
@@ -1632,7 +1686,7 @@ export class BookingService implements OnModuleInit {
       throw new NotFoundException('Venue not found');
     }
 
-    const { page, limit, status, paymentStatus, date } = query;
+    const { page, limit, status, paymentStatus, date, startDate, endDate } = query;
     const search: any = { venueId: venue._id };
 
     if (status) {
@@ -1641,7 +1695,20 @@ export class BookingService implements OnModuleInit {
     if (paymentStatus) {
       search.paymentStatus = paymentStatus;
     }
-    if (date) {
+    if (startDate || endDate) {
+      const dateFilter: any = {};
+      if (startDate) {
+        const s = new Date(startDate);
+        s.setUTCHours(0, 0, 0, 0);
+        dateFilter.$gte = s;
+      }
+      if (endDate) {
+        const e = new Date(endDate);
+        e.setUTCHours(23, 59, 59, 999);
+        dateFilter.$lte = e;
+      }
+      search.date = dateFilter;
+    } else if (date) {
       const d = new Date(date);
       const startOfDay = new Date(d);
       startOfDay.setUTCHours(0, 0, 0, 0);
@@ -1777,6 +1844,21 @@ export class BookingService implements OnModuleInit {
       },
     });
 
+    if (booking.status === BookingStatusEnum.confirmed && (booking.couponId || booking.couponCode)) {
+      try {
+        const couponFilter = booking.couponId
+          ? { _id: booking.couponId }
+          : { code: booking.couponCode };
+        const coupon = await this.couponRepo.findOne({ filter: couponFilter });
+        if (coupon && coupon.usesCount > 0) {
+          coupon.usesCount = Math.max(0, coupon.usesCount - 1);
+          await coupon.save();
+        }
+      } catch (couponErr) {
+        this.logger.warn('Failed to restore coupon usesCount on cancellation:', couponErr);
+      }
+    }
+
     if (updatedBooking) {
       this.bookingGateway.emitSlotReleased(updatedBooking);
       this.bookingGateway.emitBookingCancelled(updatedBooking, wasPaid ? actualPaidAmount : 0);
@@ -1793,7 +1875,11 @@ export class BookingService implements OnModuleInit {
     return updatedBooking;
   }
 
-  async updateStatus(id: string, updateDto: UpdateBookingStatusDto) {
+  async updateStatus(
+    id: string,
+    updateDto: UpdateBookingStatusDto,
+    user?: any,
+  ) {
     const booking = await this.bookingRepo.findById(id);
     if (!booking) {
       throw new NotFoundException('Booking not found');
@@ -1830,6 +1916,9 @@ export class BookingService implements OnModuleInit {
       updateData.remainingAmount = 0;
       updateData.paymentStatus = PaymentStatusEnum.paid;
       updateData.expiresAt = null;
+      if (user?._id) {
+        updateData.cashCollectedBy = user._id;
+      }
 
       // Settle outstanding balance as cash payment in DB for reports
       const remainingDue =
@@ -1853,9 +1942,10 @@ export class BookingService implements OnModuleInit {
             transactionId: cashTxId,
             status: PaymentStatusEnum.paid,
             paidAt: new Date(),
+            collectedBy: user?._id,
           });
           this.logger.log(
-            `Recorded cash settlement payment ${cashTxId} of ${remainingDue} EGP for booking ${booking._id}`,
+            `Recorded cash settlement payment ${cashTxId} of ${remainingDue} EGP (collected by ${user?.userName || user?._id || 'unknown'}) for booking ${booking._id}`,
           );
           if (!booking.paidAmount || booking.paidAmount === 0) {
             updateData.paymentMethod = PaymentMethodEnum.cash;

@@ -1,0 +1,58 @@
+{
+  "BOOKING_CONFIRMED": {
+    "title": "Booking Confirmed! ✅",
+    "body": "Your booking at {venueName} for {date} at {time} is confirmed. Booking Code: {bookingCode}"
+  },
+  "BOOKING_CANCELLED": {
+    "title": "Booking Cancelled ❌",
+    "body": "Booking #{bookingCode} at {venueName} has been cancelled. {refundInfo}"
+  },
+  "NEW_BOOKING_REQUEST": {
+    "title": "New Booking Received! 📋",
+    "body": "New booking received for {venueName} on {date} at {time} by {customerName}. Code: {bookingCode}"
+  },
+  "MATCH_REMINDER_KICKOFF": {
+    "title": "2 Hours Until Kickoff! ⏳",
+    "body": "Your match at {venueName} starts at {time}. Gate Pass Code: {bookingCode} 🎫"
+  },
+  "MATCH_REMINDER_MORNING": {
+    "title": "Match Day Today! ⚽",
+    "body": "Your match at {venueName} kicks off at {time}. Get ready with your team! 🏆"
+  },
+  "MATCH_REMINDER_CANCELLED": {
+    "title": "Match Reminder Cancelled ❌",
+    "body": "Your booking at {venueName} has been cancelled or rescheduled."
+  },
+  "NEW_PROMO": {
+    "title": "New Special Offer! 🎁",
+    "body": "{promoTitle} - Book now and enjoy special discounts on your favorite pitches!"
+  },
+  "NEW_COUPON": {
+    "title": "New Discount Code! 🏷️",
+    "body": "Use coupon code {couponCode} to get a {discount} discount on your next booking!"
+  },
+  "PAYMENT_APPROVED": {
+    "title": "Payment Approved! 💳",
+    "body": "Your payment for booking #{bookingCode} has been verified and approved."
+  },
+  "PAYMENT_REJECTED": {
+    "title": "Payment Rejected ⚠️",
+    "body": "Your payment screenshot for booking #{bookingCode} was rejected. {reason}"
+  },
+  "USER_SUSPENDED": {
+    "title": "Account Status Notice ⚠️",
+    "body": "Hello {userName}, your account has been suspended. Reason: {reason}"
+  },
+  "USER_ON_HOLD": {
+    "title": "Account Under Review ℹ️",
+    "body": "Hello {userName}, your account is on hold. Reason: {reason}"
+  },
+  "USER_ACTIVE": {
+    "title": "Account Activated! 🟢",
+    "body": "Welcome back {userName}, your account has been activated. You can now book pitches."
+  },
+  "PITCH_REOPENED": {
+    "title": "Pitch Reopened! 🏟️",
+    "body": "{venueName} is back open and ready for bookings after maintenance."
+  }
+}

@@ -20,6 +20,7 @@ import { PaymobService } from 'src/common/integration/paymob/paymob.service';
 import { BookingRepo } from 'src/common/repositories/booking-repo';
 import { PaymentRepo } from 'src/common/repositories/payment-repo';
 import { VenueRepo } from 'src/common/repositories/venue-repo';
+import { CouponRepo } from 'src/common/repositories/coupon-repo';
 import { UserDocument } from '../user/entities/user.entity';
 import { WalletService } from '../wallet/wallet.service';
 import { BookingGateway } from '../booking/booking.gateway';
@@ -43,6 +44,7 @@ export class PaymentService {
     private readonly paymobService: PaymobService,
     private readonly pushService: PushNotificationService,
     @Optional() private readonly bookingGateway?: BookingGateway,
+    @Optional() private readonly couponRepo?: CouponRepo,
   ) { }
 
   private generateTransactionId(): string {
@@ -94,9 +96,19 @@ export class PaymentService {
       0,
     );
 
+    const isPayingRemaining =
+      booking.status === BookingStatusEnum.confirmed &&
+      targetBookings.some((b) => (b.remainingAmount || 0) > 0);
+
     let paymentAmount = totalGroupFinalPrice;
     let isDepositOnly = false;
-    if (
+    if (isPayingRemaining) {
+      paymentAmount = targetBookings.reduce(
+        (sum, b) => sum + (b.remainingAmount || 0),
+        0,
+      );
+      isDepositOnly = false;
+    } else if (
       venue?.minimumDepositAmount !== undefined &&
       venue?.minimumDepositAmount !== null &&
       venue.minimumDepositAmount > 0
@@ -133,14 +145,15 @@ export class PaymentService {
 
       for (const b of targetBookings) {
         const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
+        const currentPaid = b.paidAmount || 0;
         const bPaid = isDepositOnly
           ? Number(((bookingFinal / (totalGroupFinalPrice || 1)) * paymentAmount).toFixed(2))
-          : bookingFinal;
+          : Math.min(bookingFinal, Number((currentPaid + paymentAmount).toFixed(2)));
         const bRemaining = Math.max(0, Number((bookingFinal - bPaid).toFixed(2)));
         const updatedBooking = await this.bookingRepo.findByIdAndUpdate({
           id: b._id,
           update: {
-            paymentStatus: targetPaymentStatus,
+            paymentStatus: bRemaining === 0 ? PaymentStatusEnum.paid : targetPaymentStatus,
             status: BookingStatusEnum.confirmed,
             paymentMethod: PaymentMethodEnum.wallet,
             paidAmount: bPaid,
@@ -296,6 +309,7 @@ export class PaymentService {
       sort: { createdAt: -1 },
       populate: [
         { path: 'userId', select: 'userName email phone name' },
+        { path: 'collectedBy', select: 'userName email role' },
         {
           path: 'bookingId',
           select: 'bookingCode date startTime endTime totalPrice finalPrice venueId venueName customerName customerPhone',
@@ -419,6 +433,9 @@ export class PaymentService {
 
     payment.status = PaymentStatusEnum.paid;
     payment.paidAt = new Date();
+    if (user?._id) {
+      payment.collectedBy = user._id;
+    }
     await payment.save();
 
     const targetBookings = payment.groupId
@@ -437,6 +454,7 @@ export class PaymentService {
           paymentStatus: PaymentStatusEnum.paid,
           status: BookingStatusEnum.confirmed,
           expiresAt: null,
+          cashCollectedBy: user?._id,
         },
       });
       if (this.bookingGateway && updated) {
@@ -797,22 +815,24 @@ export class PaymentService {
       const confirmedBookings: any[] = [];
       for (const b of targetBookings) {
         const bookingFinal = b.finalPrice ?? b.totalPrice ?? 0;
-        const bPaid = isDeposit
+        const currentPaid = b.paidAmount || 0;
+        const bPaid = isDeposit && currentPaid === 0
           ? Number(
               (
                 (bookingFinal / (totalGroupDue || 1)) *
                 totalActualPaid
               ).toFixed(2),
             )
-          : bookingFinal;
+          : Math.min(bookingFinal, Number((currentPaid + totalActualPaid).toFixed(2)));
         const bRemaining = Math.max(
           0,
           Number((bookingFinal - bPaid).toFixed(2)),
         );
+        const actualStatus = bRemaining === 0 ? PaymentStatusEnum.paid : PaymentStatusEnum.partially_paid;
         const updated = await this.bookingRepo.findByIdAndUpdate({
           id: b._id,
           update: {
-            paymentStatus: targetPaymentStatus,
+            paymentStatus: actualStatus,
             status: BookingStatusEnum.confirmed,
             paidAmount: bPaid,
             remainingAmount: bRemaining,
@@ -842,6 +862,22 @@ export class PaymentService {
           this.logger.warn(
             `Failed to emit socket event: ${socketErr?.message || socketErr}`,
           );
+        }
+      }
+
+      // Increment coupon usesCount if coupon was applied
+      if (this.couponRepo && (booking.couponId || booking.couponCode)) {
+        try {
+          const couponFilter = booking.couponId
+            ? { _id: booking.couponId }
+            : { code: booking.couponCode };
+          const coupon = await this.couponRepo.findOne({ filter: couponFilter });
+          if (coupon) {
+            coupon.usesCount = (coupon.usesCount || 0) + 1;
+            await coupon.save();
+          }
+        } catch (couponErr) {
+          this.logger.warn('Failed to increment coupon usesCount on Paymob confirmation:', couponErr);
         }
       }
 

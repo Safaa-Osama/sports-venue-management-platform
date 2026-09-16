@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -15,9 +15,20 @@ import {
   GuestDeviceDocument,
 } from './entities/guest-device.entity';
 import {
+  Notification,
+  NotificationDocument,
+  NotificationTargetType,
+} from './entities/notification.entity';
+import {
   NotificationEventType,
   renderTemplate,
 } from './push-templates';
+import { NotificationGateway } from './notification.gateway';
+import {
+  AdminSendNotificationDto,
+  QueryAdminNotificationHistoryDto,
+  QueryNotificationDto,
+} from './dto/admin-send-notification.dto';
 
 export interface ExpoPushMessage {
   to: string;
@@ -54,6 +65,10 @@ export class PushNotificationService {
     private readonly userModel: Model<UserDocument>,
     @InjectModel(GuestDevice.name)
     private readonly guestDeviceModel: Model<GuestDeviceDocument>,
+    @InjectModel(Notification.name)
+    private readonly notificationModel: Model<NotificationDocument>,
+    @Optional()
+    private readonly notificationGateway?: NotificationGateway,
   ) {}
 
   /**
@@ -191,7 +206,7 @@ export class PushNotificationService {
   }
 
   /**
-   * Send notification to a customer user
+   * Send notification to a customer user (Stores in-app Notification + Dispatches Push + Emits Socket)
    */
   async sendToCustomer(
     customerId: string | Types.ObjectId,
@@ -200,18 +215,46 @@ export class PushNotificationService {
     dataPayload: Record<string, any> = {},
   ): Promise<void> {
     const objectId = typeof customerId === 'string' ? new Types.ObjectId(customerId) : customerId;
+
+    // 1. Render both localized strings for DB persistence
+    const arContent = renderTemplate(eventType, 'ar', params);
+    const enContent = renderTemplate(eventType, 'en', params);
+
+    // 2. Persist in-app Notification document
+    let createdNotification: NotificationDocument | null = null;
+    try {
+      createdNotification = await this.notificationModel.create({
+        title: { ar: arContent.title, en: enContent.title },
+        body: { ar: arContent.body, en: enContent.body },
+        eventType,
+        targetType: 'specific_users',
+        recipientUserIds: [objectId],
+        data: dataPayload,
+        readBy: [],
+        deletedBy: [],
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to persist in-app notification: ${err?.message || err}`);
+    }
+
+    // 3. Emit real-time WebSocket event
+    if (this.notificationGateway && createdNotification) {
+      this.notificationGateway.emitUserNotification(objectId.toString(), createdNotification);
+    }
+
+    // 4. Dispatch mobile push notification if user has registered device tokens
     const customer = await this.customerUserModel.findById(objectId);
     if (!customer || !customer.pushTokens || customer.pushTokens.length === 0) {
       return;
     }
 
     const locale = (customer as any).locale || 'ar';
-    const { title, body } = renderTemplate(eventType, locale, params);
+    const activeContent = locale?.toLowerCase().startsWith('en') ? enContent : arContent;
 
     const messages: ExpoPushMessage[] = customer.pushTokens.map((pt) => ({
       to: pt.token,
-      title,
-      body,
+      title: activeContent.title,
+      body: activeContent.body,
       sound: 'default',
       channelId: 'default',
       priority: 'high',
@@ -267,6 +310,31 @@ export class PushNotificationService {
     params: Record<string, string | number> = {},
     dataPayload: Record<string, any> = {},
   ): Promise<void> {
+    const arContent = renderTemplate(eventType, 'ar', params);
+    const enContent = renderTemplate(eventType, 'en', params);
+
+    // 1. Persist broadcast in-app Notification document
+    let createdNotification: NotificationDocument | null = null;
+    try {
+      createdNotification = await this.notificationModel.create({
+        title: { ar: arContent.title, en: enContent.title },
+        body: { ar: arContent.body, en: enContent.body },
+        eventType,
+        targetType: 'all',
+        data: dataPayload,
+        readBy: [],
+        deletedBy: [],
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to persist broadcast notification: ${err?.message || err}`);
+    }
+
+    // 2. Emit real-time WebSocket event globally
+    if (this.notificationGateway && createdNotification) {
+      this.notificationGateway.emitGlobalNotification(createdNotification);
+    }
+
+    // 3. Dispatch push batches
     const [customers, guestDevices] = await Promise.all([
       this.customerUserModel.find(
         { 'pushTokens.0': { $exists: true } },
@@ -278,18 +346,17 @@ export class PushNotificationService {
     const messages: ExpoPushMessage[] = [];
     const seenTokens = new Set<string>();
 
-    // 1. Process customer push tokens
     for (const customer of customers) {
-      const locale = (customer as any).locale || 'ar';
-      const { title, body } = renderTemplate(eventType, locale, params);
+      const isEn = (customer as any).locale?.toLowerCase().startsWith('en');
+      const activeContent = isEn ? enContent : arContent;
 
       for (const pt of customer.pushTokens) {
         if (pt.token && !seenTokens.has(pt.token)) {
           seenTokens.add(pt.token);
           messages.push({
             to: pt.token,
-            title,
-            body,
+            title: activeContent.title,
+            body: activeContent.body,
             sound: 'default',
             channelId: 'default',
             priority: 'default',
@@ -302,17 +369,16 @@ export class PushNotificationService {
       }
     }
 
-    // 2. Process guest device push tokens
     for (const guest of guestDevices) {
       if (guest.token && !seenTokens.has(guest.token)) {
         seenTokens.add(guest.token);
-        const locale = guest.locale || 'ar';
-        const { title, body } = renderTemplate(eventType, locale, params);
+        const isEn = guest.locale?.toLowerCase().startsWith('en');
+        const activeContent = isEn ? enContent : arContent;
 
         messages.push({
           to: guest.token,
-          title,
-          body,
+          title: activeContent.title,
+          body: activeContent.body,
           sound: 'default',
           channelId: 'default',
           priority: 'default',
@@ -327,6 +393,425 @@ export class PushNotificationService {
     if (messages.length > 0) {
       await this.sendPushBatch(messages);
     }
+  }
+
+  /**
+   * Admin-composed custom notification dispatcher (All / Guests / Customers / Specific Users)
+   */
+  async sendAdminNotification(
+    dto: AdminSendNotificationDto,
+    adminUserId?: string,
+  ): Promise<{ success: boolean; notification: NotificationDocument; pushedCount: number }> {
+    const titleAr = dto.titleAr.trim();
+    const titleEn = (dto.titleEn || dto.titleAr).trim();
+    const bodyAr = dto.bodyAr.trim();
+    const bodyEn = (dto.bodyEn || dto.bodyAr).trim();
+
+    // Resolve route from deepLinkType
+    let resolvedRoute = dto.customRoute;
+    if (!resolvedRoute) {
+      if (dto.deepLinkType === 'pitch' && dto.venueId) {
+        resolvedRoute = `/pitch/${dto.venueId}`;
+      } else if (dto.deepLinkType === 'bookings') {
+        resolvedRoute = `/(tabs)/bookings`;
+      } else if (dto.deepLinkType === 'profile') {
+        resolvedRoute = `/(tabs)/profile`;
+      } else if (dto.deepLinkType === 'promo') {
+        resolvedRoute = `/`;
+      }
+    }
+
+    const dataPayload = {
+      eventType: 'ADMIN_BROADCAST',
+      route: resolvedRoute,
+      venueId: dto.venueId,
+      deepLinkType: dto.deepLinkType || 'none',
+    };
+
+    const targetType: NotificationTargetType =
+      (dto.targetType as NotificationTargetType) || 'all';
+    const recipientUserIds: Types.ObjectId[] = [];
+
+    if (targetType === 'specific_users' && dto.customerIds && dto.customerIds.length > 0) {
+      dto.customerIds.forEach((id) => {
+        if (Types.ObjectId.isValid(id)) {
+          recipientUserIds.push(new Types.ObjectId(id));
+        }
+      });
+    }
+
+    // 1. Create Notification document in MongoDB
+    const notification = await this.notificationModel.create({
+      title: { ar: titleAr, en: titleEn },
+      body: { ar: bodyAr, en: bodyEn },
+      eventType: 'ADMIN_BROADCAST',
+      targetType,
+      recipientUserIds,
+      data: dataPayload,
+      readBy: [],
+      deletedBy: [],
+      sentBy: adminUserId && Types.ObjectId.isValid(adminUserId) ? new Types.ObjectId(adminUserId) : undefined,
+    });
+
+    // 2. Emit WebSocket event
+    if (this.notificationGateway) {
+      if (targetType === 'specific_users') {
+        recipientUserIds.forEach((uid) => {
+          this.notificationGateway?.emitUserNotification(uid.toString(), notification);
+        });
+      } else {
+        this.notificationGateway.emitGlobalNotification(notification);
+      }
+    }
+
+    // 3. Collect push tokens according to target audience
+    const messages: ExpoPushMessage[] = [];
+    const seenTokens = new Set<string>();
+
+    const addTokens = (
+      tokens: { token: string; platform?: string }[],
+      userLocale?: string,
+    ) => {
+      const isEn = userLocale?.toLowerCase().startsWith('en');
+      const activeTitle = isEn ? titleEn : titleAr;
+      const activeBody = isEn ? bodyEn : bodyAr;
+
+      for (const pt of tokens || []) {
+        if (pt.token && !seenTokens.has(pt.token)) {
+          seenTokens.add(pt.token);
+          messages.push({
+            to: pt.token,
+            title: activeTitle,
+            body: activeBody,
+            sound: 'default',
+            channelId: 'default',
+            priority: 'high',
+            data: dataPayload,
+          });
+        }
+      }
+    };
+
+    if (targetType === 'all' || targetType === 'customers') {
+      const customerFilter: any = { 'pushTokens.0': { $exists: true } };
+      const customers = await this.customerUserModel.find(customerFilter, { pushTokens: 1, locale: 1 });
+      for (const c of customers) {
+        addTokens(c.pushTokens, (c as any).locale);
+      }
+    } else if (targetType === 'specific_users' && recipientUserIds.length > 0) {
+      const customers = await this.customerUserModel.find(
+        { _id: { $in: recipientUserIds }, 'pushTokens.0': { $exists: true } },
+        { pushTokens: 1, locale: 1 },
+      );
+      for (const c of customers) {
+        addTokens(c.pushTokens, (c as any).locale);
+      }
+    }
+
+    if (targetType === 'all' || targetType === 'guests') {
+      const guestDevices = await this.guestDeviceModel.find({}, { token: 1, locale: 1 });
+      for (const g of guestDevices) {
+        addTokens([{ token: g.token }], g.locale);
+      }
+    }
+
+    // 4. Send push batch
+    if (messages.length > 0) {
+      await this.sendPushBatch(messages);
+    }
+
+    return {
+      success: true,
+      notification,
+      pushedCount: messages.length,
+    };
+  }
+
+  /**
+   * Fetch in-app notifications for authenticated user or guest
+   */
+  async getNotificationsForUser(
+    user: { _id?: string } | null,
+    query: QueryNotificationDto,
+    guestReadIds: string[] = [],
+    guestDeletedIds: string[] = [],
+  ): Promise<{
+    notifications: Array<{
+      _id: string;
+      title: { ar: string; en: string };
+      body: { ar: string; en: string };
+      eventType: string;
+      targetType: string;
+      data: Record<string, any>;
+      isRead: boolean;
+      createdAt: Date;
+    }>;
+    unreadCount: number;
+    total: number;
+  }> {
+    const page = Math.max(1, Number(query.page || 1));
+    const limit = Math.max(1, Math.min(100, Number(query.limit || 50)));
+    const skip = (page - 1) * limit;
+
+    if (user && user._id && Types.ObjectId.isValid(user._id)) {
+      const userId = new Types.ObjectId(user._id);
+
+      const matchFilter: any = {
+        $and: [
+          {
+            $or: [
+              { targetType: 'all' },
+              { targetType: 'customers' },
+              { targetType: 'specific_users', recipientUserIds: userId },
+            ],
+          },
+          { deletedBy: { $ne: userId } },
+        ],
+      };
+
+      if (query.filter === 'unread') {
+        matchFilter.$and.push({ readBy: { $ne: userId } });
+      } else if (query.filter === 'read') {
+        matchFilter.$and.push({ readBy: userId });
+      }
+
+      const [docs, total, unreadCount] = await Promise.all([
+        this.notificationModel
+          .find(matchFilter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        this.notificationModel.countDocuments(matchFilter),
+        this.notificationModel.countDocuments({
+          $and: [
+            {
+              $or: [
+                { targetType: 'all' },
+                { targetType: 'customers' },
+                { targetType: 'specific_users', recipientUserIds: userId },
+              ],
+            },
+            { deletedBy: { $ne: userId } },
+            { readBy: { $ne: userId } },
+          ],
+        }),
+      ]);
+
+      const formatted = docs.map((doc: any) => ({
+        _id: doc._id.toString(),
+        title: doc.title,
+        body: doc.body,
+        eventType: doc.eventType,
+        targetType: doc.targetType,
+        data: doc.data || {},
+        isRead: Array.isArray(doc.readBy) && doc.readBy.some((id: any) => id.toString() === userId.toString()),
+        createdAt: doc.createdAt,
+      }));
+
+      return { notifications: formatted, unreadCount, total };
+    } else {
+      // Guest user — fetch broadcast notifications
+      const guestDeletedObjectIds = (guestDeletedIds || [])
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id));
+
+      const matchFilter: any = {
+        targetType: { $in: ['all', 'guests'] },
+        ...(guestDeletedObjectIds.length > 0 ? { _id: { $nin: guestDeletedObjectIds } } : {}),
+      };
+
+      const docs = await this.notificationModel
+        .find(matchFilter)
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean();
+
+      let formatted = docs.map((doc: any) => ({
+        _id: doc._id.toString(),
+        title: doc.title,
+        body: doc.body,
+        eventType: doc.eventType,
+        targetType: doc.targetType,
+        data: doc.data || {},
+        isRead: (guestReadIds || []).includes(doc._id.toString()),
+        createdAt: doc.createdAt,
+      }));
+
+      if (query.filter === 'unread') {
+        formatted = formatted.filter((n) => !n.isRead);
+      } else if (query.filter === 'read') {
+        formatted = formatted.filter((n) => n.isRead);
+      }
+
+      const total = formatted.length;
+      const unreadCount = docs.filter((doc: any) => !(guestReadIds || []).includes(doc._id.toString())).length;
+      const paginated = formatted.slice(skip, skip + limit);
+
+      return { notifications: paginated, unreadCount, total };
+    }
+  }
+
+  /**
+   * Fast unread count query
+   */
+  async getUnreadCount(
+    user: { _id?: string } | null,
+    guestReadIds: string[] = [],
+    guestDeletedIds: string[] = [],
+  ): Promise<number> {
+    if (user && user._id && Types.ObjectId.isValid(user._id)) {
+      const userId = new Types.ObjectId(user._id);
+      return await this.notificationModel.countDocuments({
+        $and: [
+          {
+            $or: [
+              { targetType: 'all' },
+              { targetType: 'customers' },
+              { targetType: 'specific_users', recipientUserIds: userId },
+            ],
+          },
+          { deletedBy: { $ne: userId } },
+          { readBy: { $ne: userId } },
+        ],
+      });
+    } else {
+      const guestDeletedObjectIds = (guestDeletedIds || [])
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id));
+
+      const docs = await this.notificationModel
+        .find({
+          targetType: { $in: ['all', 'guests'] },
+          ...(guestDeletedObjectIds.length > 0 ? { _id: { $nin: guestDeletedObjectIds } } : {}),
+        }, { _id: 1 })
+        .lean();
+
+      return docs.filter((doc: any) => !(guestReadIds || []).includes(doc._id.toString())).length;
+    }
+  }
+
+  /**
+   * Mark a single notification as read
+   */
+  async markAsRead(notificationId: string, user: { _id?: string } | null): Promise<boolean> {
+    if (!notificationId || !Types.ObjectId.isValid(notificationId)) return false;
+
+    if (user && user._id && Types.ObjectId.isValid(user._id)) {
+      const userId = new Types.ObjectId(user._id);
+      await this.notificationModel.findByIdAndUpdate(notificationId, {
+        $addToSet: { readBy: userId },
+      });
+      return true;
+    }
+
+    return true;
+  }
+
+  /**
+   * Mark all applicable notifications as read
+   */
+  async markAllAsRead(user: { _id?: string } | null): Promise<boolean> {
+    if (user && user._id && Types.ObjectId.isValid(user._id)) {
+      const userId = new Types.ObjectId(user._id);
+      await this.notificationModel.updateMany(
+        {
+          $and: [
+            {
+              $or: [
+                { targetType: 'all' },
+                { targetType: 'customers' },
+                { targetType: 'specific_users', recipientUserIds: userId },
+              ],
+            },
+            { deletedBy: { $ne: userId } },
+          ],
+        },
+        {
+          $addToSet: { readBy: userId },
+        },
+      );
+      return true;
+    }
+    return true;
+  }
+
+  /**
+   * Dismiss / delete notification for the user
+   */
+  async deleteNotification(notificationId: string, user: { _id?: string } | null): Promise<boolean> {
+    if (!notificationId || !Types.ObjectId.isValid(notificationId)) return false;
+
+    if (user && user._id && Types.ObjectId.isValid(user._id)) {
+      const userId = new Types.ObjectId(user._id);
+      await this.notificationModel.findByIdAndUpdate(notificationId, {
+        $addToSet: { deletedBy: userId },
+      });
+      return true;
+    }
+
+    return true;
+  }
+
+  /**
+   * Admin history query filtered by date range, targetType, or search text
+   */
+  async getAdminHistory(
+    query: QueryAdminNotificationHistoryDto,
+  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+    const page = Math.max(1, Number(query.page || 1));
+    const limit = Math.max(1, Math.min(100, Number(query.limit || 50)));
+    const skip = (page - 1) * limit;
+
+    const filter: any = {};
+
+    if (query.targetType && query.targetType !== 'all_targets') {
+      filter.targetType = query.targetType;
+    }
+
+    if (query.startDate || query.endDate) {
+      const dateFilter: any = {};
+      if (query.startDate && String(query.startDate).trim()) {
+        const start = new Date(query.startDate);
+        if (!isNaN(start.getTime())) {
+          start.setHours(0, 0, 0, 0);
+          dateFilter.$gte = start;
+        }
+      }
+      if (query.endDate && String(query.endDate).trim()) {
+        const end = new Date(query.endDate);
+        if (!isNaN(end.getTime())) {
+          end.setHours(23, 59, 59, 999);
+          dateFilter.$lte = end;
+        }
+      }
+      if (Object.keys(dateFilter).length > 0) {
+        filter.createdAt = dateFilter;
+      }
+    }
+
+    if (query.search && query.search.trim()) {
+      const term = query.search.trim();
+      filter.$or = [
+        { 'title.ar': { $regex: term, $options: 'i' } },
+        { 'title.en': { $regex: term, $options: 'i' } },
+        { 'body.ar': { $regex: term, $options: 'i' } },
+        { 'body.en': { $regex: term, $options: 'i' } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      this.notificationModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('sentBy', 'userName name email')
+        .lean(),
+      this.notificationModel.countDocuments(filter),
+    ]);
+
+    return { data, total, page, limit };
   }
 
   /**
